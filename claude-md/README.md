@@ -5,7 +5,7 @@ relative paths they get in the repo. Folder paths are placeholders: check them a
 
 | File here | Copy to (in midnight-api) | What it holds |
 |---|---|---|
-| `CLAUDE.md` | `CLAUDE.md` (repo root) | Scope rule, how to ask questions, checking, git, Python naming |
+| `CLAUDE.md` | `CLAUDE.md` (repo root) | Repo map, how to check work, scope, questions, git, the few rules shared by every service |
 | `services/evermore/CLAUDE.md` | `services/evermore/CLAUDE.md` | CRUD + real-data validation, transactions |
 | `services/evermore/tests/CLAUDE.md` | `services/evermore/tests/CLAUDE.md` | The inventory test model (wins over pytest-conventions) |
 | `services/twilight/CLAUDE.md` | `services/twilight/CLAUDE.md` | Reverse-proxy rules and what to test |
