@@ -5,8 +5,10 @@ Creates or removes a feature's native git worktree under `.claude/worktrees/<bra
 Usage: python3 worktree.py create BTRC-1234 [--no-worktree]
        python3 worktree.py remove BTRC-1234
 `create` reuses the branch when it exists (locally or on origin), never creates a second branch for the same BTRC-<n>,
-keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`, and records `Worktree:` and `Worktree mode:` in state.md.
-Running it again when the worktree exists only records it.
+keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`, records `Worktree:`, `Worktree mode:` and `Repository:` in state.md,
+copies the gitignored files listed in `.worktreeinclude`, and moves the feature folder into the worktree
+(`<worktree>/docs/features/<ticket>`), because Claude Code blocks edits to the main checkout once the session has entered the worktree.
+The main checkout's docs/features/.active then points at the moved folder. Running it again when the worktree exists only records it.
 Exit codes: 0 done, 1 git failed, 2 setup error (no feature, missing fields, another branch for the ticket).
 
 :author: midnight-workflow
@@ -15,10 +17,11 @@ Exit codes: 0 done, 1 git failed, 2 setup error (no feature, missing fields, ano
 # ----- Imports ----- #
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
-from feature_state import FeatureNotFoundError, FeatureState, NO_WORKTREE_MODE, load_feature_state
+from feature_state import FEATURES_DIRECTORY, FeatureNotFoundError, FeatureState, NO_WORKTREE_MODE, STATE_FILE_NAME, load_feature_state, write_active_marker
 from git_changes import run_git
 from hooks.guard_branch import BranchChange, conflicting_branches
 
@@ -31,6 +34,9 @@ WORKTREES_DIRECTORY = Path(".claude") / "worktrees"
 EXCLUDED_PATTERNS = (".claude/worktrees/", "docs/features/")
 WORKTREE_MODE = "worktree"
 LOCAL_REFS_PREFIX = "refs/heads/"
+WORKTREE_INCLUDE_NAME = ".worktreeinclude"
+NEVER_COPIED_PREFIXES = (".claude/worktrees/", "docs/features/")
+NOT_MOVED_FILES = (".running.json", ".stop-hook.json")
 
 # ----- Classes ----- #
 
@@ -149,10 +155,126 @@ def read_branch_and_base(state: FeatureState) -> tuple[str, str]:
 
 
 def record_worktree(state: FeatureState, worktree: str, mode: str):
+    repository_root = state.repository_root.resolve()
     state.reload()
+    state.set_field("Repository", repository_root.as_posix())
     state.set_field("Worktree", worktree)
     state.set_field("Worktree mode", mode)
     state.save()
+
+
+def split_nul_list(output: str) -> list[str]:
+    return [
+        entry
+        for entry in output.split("\0")
+        if entry != ""
+    ]
+
+
+def copy_included_files(repository_root: Path, worktree_path: Path) -> int:
+    """
+    Copy the gitignored files `.worktreeinclude` lists (e.g. `.env`) into the worktree, as Claude Code does for its own worktrees.
+
+    :param repository_root: The main checkout.
+    :param worktree_path: The new worktree.
+    :return: How many files were copied; files the worktree already has are kept.
+    """
+    include_path = repository_root / WORKTREE_INCLUDE_NAME
+    if not include_path.is_file():
+        return 0
+    listed = split_nul_list(
+        require_git(
+            ["ls-files", "-z", "--others", "--ignored", f"--exclude-from={include_path}"],
+            repository_root,
+            f"Could not list the files {WORKTREE_INCLUDE_NAME} names.",
+        ),
+    )
+    candidates = [
+        relative_path
+        for relative_path in listed
+        if not relative_path.startswith(NEVER_COPIED_PREFIXES)
+    ]
+    if len(candidates) == 0:
+        return 0
+    ignored = run_git(
+        ["check-ignore", "--", *candidates],
+        repository_root,
+    ).stdout.splitlines()
+    copied = 0
+    for relative_path in ignored:
+        target = worktree_path / relative_path
+        if target.exists():
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repository_root / relative_path, target)
+        copied += 1
+
+    return copied
+
+
+def move_feature_into_worktree(state: FeatureState, worktree_path: Path) -> Path:
+    """
+    Move the feature folder into the worktree, so the session can still edit it after EnterWorktree.
+
+    :param state: The feature's state (its folder may already be in the worktree).
+    :param worktree_path: The worktree.
+    :return: The feature folder's new place; the main checkout's .active points at it.
+    """
+    ticket = state.field("Ticket")
+    target = worktree_path / FEATURES_DIRECTORY / ticket
+    if state.feature_directory.resolve() != target.resolve():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            state.feature_directory,
+            target,
+            dirs_exist_ok=True,
+        )
+        shutil.rmtree(state.feature_directory)
+
+    write_active_marker(target.parent, ticket)
+    write_active_marker(
+        state.repository_root / FEATURES_DIRECTORY,
+        ticket,
+        target.resolve(),
+    )
+    return target
+
+
+def finish_worktree_setup(state: FeatureState, worktree: str, message: str) -> str:
+    record_worktree(
+        state,
+        worktree,
+        WORKTREE_MODE,
+    )
+    worktree_path = (state.repository_root / worktree).resolve()
+    copied = copy_included_files(state.repository_root, worktree_path)
+    feature_folder = move_feature_into_worktree(state, worktree_path)
+    return (
+        f"{message} Copied {copied} file(s) from {WORKTREE_INCLUDE_NAME}. Feature folder: {feature_folder}. "
+        f"Next: call EnterWorktree with {worktree_path}."
+    )
+
+
+def bring_feature_home(state: FeatureState) -> FeatureState:
+    """
+    Copy the feature folder from the worktree back to the main checkout, before the worktree is removed.
+
+    :param state: The feature's state, wherever its folder is.
+    :return: The state of the copy in the main checkout's docs/features.
+    """
+    ticket = state.field("Ticket")
+    home = state.repository_root / FEATURES_DIRECTORY / ticket
+    if state.feature_directory.resolve() == home.resolve():
+        return state
+    shutil.copytree(
+        state.feature_directory,
+        home,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(*NOT_MOVED_FILES),
+    )
+    write_active_marker(home.parent, ticket)
+    return FeatureState.load(home / STATE_FILE_NAME)
 
 
 def create_worktree(state: FeatureState) -> str:
@@ -169,12 +291,11 @@ def create_worktree(state: FeatureState) -> str:
     worktree = relative_worktree_path(branch)
     worktree_path = (repository_root / worktree).resolve()
     if worktree_path in registered_worktrees(repository_root):
-        record_worktree(
+        return finish_worktree_setup(
             state,
             worktree,
-            WORKTREE_MODE,
+            f"Worktree {worktree} already exists; recorded it.",
         )
-        return f"Worktree {worktree} already exists; recorded it."
     require_git(
         ["fetch", REMOTE, base],
         repository_root,
@@ -187,23 +308,21 @@ def create_worktree(state: FeatureState) -> str:
             repository_root,
             f"git worktree add {worktree} {branch} failed.",
         )
-        record_worktree(
+        return finish_worktree_setup(
             state,
             worktree,
-            WORKTREE_MODE,
+            f"Reused branch {branch} in {worktree}.",
         )
-        return f"Reused branch {branch} in {worktree}."
     require_git(
         ["worktree", "add", "-b", branch, worktree, f"{REMOTE}/{base}"],
         repository_root,
         f"git worktree add -b {branch} {worktree} {REMOTE}/{base} failed.",
     )
-    record_worktree(
+    return finish_worktree_setup(
         state,
         worktree,
-        WORKTREE_MODE,
+        f"Created branch {branch} from {REMOTE}/{base} in {worktree}.",
     )
-    return f"Created branch {branch} from {REMOTE}/{base} in {worktree}."
 
 
 def switch_main_checkout(state: FeatureState) -> str:

@@ -5,8 +5,9 @@ from pathlib import Path
 import pytest
 
 import worktree
+from worktree import bring_feature_home
 from conftest import git
-from feature_state import FeatureState
+from feature_state import FeatureState, find_active_feature, find_running_feature, load_feature_state
 from guard_branch import find_branch_changes
 
 BRANCH = "BTRC-1234-csv-export"
@@ -23,7 +24,7 @@ class Repository:
     feature_directory: Path
 
     def state(self) -> FeatureState:
-        return FeatureState.load(self.feature_directory / "state.md")
+        return load_feature_state("BTRC-1234", self.root)
 
 
 @pytest.fixture
@@ -166,3 +167,74 @@ def test_guard_branch_lets_the_script_call_through():
     changes = find_branch_changes('python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create BTRC-1234 --no-worktree')
 
     assert changes == []
+
+
+def test_create_moves_the_feature_folder_into_the_worktree_and_points_at_it(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    run_main(monkeypatch, "create", "BTRC-1234")
+
+    moved = repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
+    main_marker = (repository.root / "docs" / "features" / ".active").read_text(encoding="utf-8")
+    assert (moved / "state.md").is_file()
+    assert not (repository.root / "docs" / "features" / "BTRC-1234").exists()
+    assert (repository.root / WORKTREE / "docs" / "features" / ".active").read_text(encoding="utf-8") == "BTRC-1234\n"
+    assert main_marker.startswith("BTRC-1234\npath: ")
+    assert repository.state().field("Repository") == repository.root.resolve().as_posix()
+    assert repository.state().code_root().resolve() == (repository.root / WORKTREE).resolve()
+
+
+def test_active_feature_is_found_from_the_worktree_and_from_the_main_checkout(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    moved = (repository.root / WORKTREE / "docs" / "features" / "BTRC-1234").resolve()
+    subfolder = repository.root / WORKTREE / "services"
+    subfolder.mkdir()
+
+    from_worktree = find_active_feature(subfolder)
+    from_main = find_active_feature(repository.root)
+
+    assert from_worktree is not None and from_worktree.resolve() == moved
+    assert from_main is not None and from_main.resolve() == moved
+
+
+def test_active_feature_is_found_through_the_main_checkout_when_the_worktree_has_no_docs(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    state = repository.state()
+    state.set_field("Approved", "yes")
+    state.save()
+    run_main(monkeypatch, "create", "BTRC-1234", "--no-worktree")
+    other_worktree = repository.root / ".claude" / "worktrees" / "scratch"
+    git(repository.root, "worktree", "add", "--quiet", "--detach", str(other_worktree), "master")
+
+    running = find_running_feature(other_worktree)
+
+    assert running is not None
+    assert running.field("Ticket") == "BTRC-1234"
+
+
+def test_create_copies_the_files_worktreeinclude_lists(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    (repository.root / ".gitignore").write_text(".env\nlocal.cfg\n", encoding="utf-8")
+    git(repository.root, "add", ".gitignore")
+    git(repository.root, "commit", "--quiet", "-m", "ignore env")
+    git(repository.root, "push", "--quiet", "origin", "master")
+    (repository.root / ".worktreeinclude").write_text(".env\n", encoding="utf-8")
+    (repository.root / ".env").write_text("DATABASE_URL=postgres://localhost/test\n", encoding="utf-8")
+    (repository.root / "local.cfg").write_text("not listed\n", encoding="utf-8")
+
+    exit_code = run_main(monkeypatch, "create", "BTRC-1234")
+
+    assert exit_code == 0
+    assert (repository.root / WORKTREE / ".env").read_text(encoding="utf-8") == "DATABASE_URL=postgres://localhost/test\n"
+    assert not (repository.root / WORKTREE / "local.cfg").exists()
+
+
+def test_bring_feature_home_copies_the_folder_back_without_markers(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    moved = repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
+    (moved / "summary-draft.md").write_text("draft\n", encoding="utf-8")
+    (moved / ".running.json").write_text("{}", encoding="utf-8")
+
+    home_state = bring_feature_home(repository.state())
+
+    home = repository.root / "docs" / "features" / "BTRC-1234"
+    assert home_state.feature_directory == home
+    assert (home / "summary-draft.md").is_file()
+    assert not (home / ".running.json").exists()
+    assert (repository.root / "docs" / "features" / ".active").read_text(encoding="utf-8") == "BTRC-1234\n"

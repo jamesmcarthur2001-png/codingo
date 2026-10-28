@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import command_runner
+
 # ----- Consts ----- #
 
 ROLE_VARIABLE = "MIDNIGHT_ROLE"
@@ -45,6 +47,10 @@ YES_PREFIX = "yes"
 NO_WORKTREE_MODE = "none"
 PLAYWRIGHT_REVIEWER_OPTION = "Playwright reviewer"
 VIDEO_OPTION = "Video"
+POINTER_PREFIX = "path:"
+GIT_DIRECTORY_NAME = ".git"
+WORKTREES_GLOB = ".claude/worktrees/*"
+MAIN_CHECKOUT_TIMEOUT_SECONDS = 10
 LOG_TIME_FORMAT = "%d/%m/%Y %H:%M"
 
 # ----- Classes ----- #
@@ -259,6 +265,14 @@ class FeatureState:
 
     @property
     def repository_root(self) -> Path:
+        """
+        Find the main checkout.
+
+        :return: The `Repository:` field (set by worktree.py, since the feature folder moves into the worktree), else the checkout holding docs/features.
+        """
+        repository = self.field("Repository")
+        if repository != "":
+            return Path(repository)
         return self.feature_directory.parent.parent.parent
 
     def code_root(self) -> Path:
@@ -316,8 +330,41 @@ def read_json_file(path: Path) -> dict[str, object] | None:
     return content
 
 
+def main_checkout_of(start: Path) -> Path | None:
+    """
+    Find the main checkout of the repository a directory is in, also from inside a linked worktree.
+
+    :param start: Any directory of the repository.
+    :return: The folder holding the shared `.git` directory, or None outside a repository.
+    """
+    if not start.is_dir():
+        return None
+    result = command_runner.run_command(
+        ["git", "rev-parse", "--git-common-dir"],
+        start,
+        MAIN_CHECKOUT_TIMEOUT_SECONDS,
+    )
+    if not result.succeeded or result.stdout.strip() == "":
+        return None
+    common_directory = Path(result.stdout.strip())
+    if not common_directory.is_absolute():
+        common_directory = start / common_directory
+    if common_directory.name != GIT_DIRECTORY_NAME:
+        return None
+    return common_directory.resolve().parent
+
+
 def search_starts(start: Path) -> list[Path]:
+    """
+    List where to look for docs/features: the start, the main checkout (from a worktree), and the Claude project directory.
+
+    :param start: The directory to search from, e.g. a hook payload's `cwd`.
+    :return: The directories, in that order.
+    """
     starts = [start.resolve()]
+    main_checkout = main_checkout_of(start)
+    if main_checkout is not None:
+        starts.append(main_checkout)
     project_directory = os.environ.get(PROJECT_DIRECTORY_VARIABLE, "")
     if project_directory != "":
         starts.append(Path(project_directory).resolve())
@@ -351,13 +398,46 @@ def find_active_feature(start: Path) -> Path | None:
     features_directory = find_features_directory(start)
     if features_directory is None:
         return None
-    marker = features_directory / ACTIVE_MARKER_NAME
-    if not marker.is_file():
-        return None
-    ticket = marker.read_text(encoding="utf-8").strip()
+    ticket, pointer = read_active_marker(features_directory)
     if ticket == "":
         return None
+    if pointer is not None and pointer.is_dir():
+        return pointer
     return features_directory / ticket
+
+
+def read_active_marker(features_directory: Path) -> tuple[str, Path | None]:
+    """
+    Read docs/features/.active: the ticket on the first line, and optionally `path: <feature folder>` when it lives in a worktree.
+
+    :param features_directory: A docs/features directory.
+    :return: The ticket (empty when nothing is active) and the pointed-to folder, if any.
+    """
+    marker = features_directory / ACTIVE_MARKER_NAME
+    if not marker.is_file():
+        return "", None
+    marker_lines = [
+        line.strip()
+        for line in marker.read_text(encoding="utf-8").splitlines()
+        if line.strip() != ""
+    ]
+    if len(marker_lines) == 0:
+        return "", None
+    pointer: Path | None = None
+    for marker_line in marker_lines[1:]:
+        if marker_line.startswith(POINTER_PREFIX):
+            pointer = Path(marker_line.removeprefix(POINTER_PREFIX).strip())
+
+    return marker_lines[0], pointer
+
+
+def write_active_marker(features_directory: Path, ticket: str, pointer: Path | None = None):
+    features_directory.mkdir(parents=True, exist_ok=True)
+    marker_text = f"{ticket}\n" if pointer is None else f"{ticket}\n{POINTER_PREFIX} {pointer.as_posix()}\n"
+    write_atomically(
+        features_directory / ACTIVE_MARKER_NAME,
+        marker_text,
+    )
 
 
 def find_running_feature(start: Path) -> FeatureState | None:
@@ -388,8 +468,21 @@ def load_feature_state(ticket: str, start: Path) -> FeatureState:
     features_directory = find_features_directory(start)
     if features_directory is None:
         raise FeatureNotFoundError(
-            f"No docs/features directory above {start}. Run this from the repository root.",
+            f"No docs/features directory above {start}. Run this from the repository or the feature's worktree.",
         )
+    candidates = [features_directory / ticket]
+    active_ticket, pointer = read_active_marker(features_directory)
+    if active_ticket == ticket and pointer is not None:
+        candidates.append(pointer)
+    main_checkout = features_directory.parent.parent
+    candidates.extend(
+        worktree / FEATURES_DIRECTORY / ticket
+        for worktree in sorted(main_checkout.glob(WORKTREES_GLOB))
+    )
+    for candidate in candidates:
+        if (candidate / STATE_FILE_NAME).is_file():
+            return FeatureState.load(candidate / STATE_FILE_NAME)
+
     return FeatureState.load(features_directory / ticket / STATE_FILE_NAME)
 
 

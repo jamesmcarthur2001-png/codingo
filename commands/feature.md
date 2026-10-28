@@ -11,9 +11,9 @@ You are the orchestrator. You do every step yourself, in this one session. Subag
 
 ## Rules (always)
 1. `state.md` is the truth. Update it after every step, before the next one. After a compaction, read it again.
-2. Run every script from the **repository root** (the directory holding `docs/features/`):
+2. Run every script from the **code root** (the session's directory after `EnterWorktree`; the scripts find the feature folder from there):
    `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py" ...`
-3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. Edit files there. Run git and project commands there with `git -C "<code root>" ...` or a subshell `(cd "<code root>" && ...)`. Never leave the shell in another directory with a bare `cd`.
+3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder moves with it to `<worktree>/docs/features/<Ticket>/`; every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
 4. Scope: new code follows the conventions. Existing lines change only when the task needs them changed. Never rename, reformat or "fix" existing code you don't need to touch.
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
@@ -50,8 +50,9 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 - `resume BTRC-<n>` → go to **R**.
 
 ## R. Resume
-1. Read `docs/features/BTRC-<n>/state.md`. If missing: tell the user and stop.
-2. Write `BTRC-<n>` into `docs/features/.active` if it isn't there.
+1. Find the feature: `docs/features/BTRC-<n>/state.md` in this checkout, or the folder named on the `path:` line of `docs/features/.active`, or `.claude/worktrees/*/docs/features/BTRC-<n>/state.md`. If none exists: tell the user and stop.
+   - If it lives in a worktree and the session isn't in that worktree yet (`claude --continue` usually returns it there by itself), call `EnterWorktree` with the worktree's absolute path. If the session can't enter it (`Phase: FINISH` with `Finish stage: cleanup`), stay in the main checkout.
+2. Make sure the `docs/features/.active` next to the feature folder names `BTRC-<n>`.
 3. If `Status` starts with `BLOCKED`: show the reason and the last 10 `## Log` lines, and stop.
 4. If `Status: DONE`: show `summary.md` and stop.
 5. Clear the `Session:` field (this is a new session; the Stop hook records the new id).
@@ -115,20 +116,22 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
      ```
      python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket>
      ```
-     It fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or reuses an existing `<Branch>`. It records `Worktree:` and `Worktree mode: worktree`.
+     It fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or reuses an existing `<Branch>`. It records `Worktree:`, `Worktree mode: worktree` and `Repository:`, copies the gitignored files listed in `.worktreeinclude` (e.g. `.env`), and **moves the feature folder into the worktree** (`<worktree>/docs/features/<Ticket>/`; the main checkout's `.active` points at it). Its last line names the worktree's absolute path.
+     Then call the **`EnterWorktree`** tool with that absolute path (a path under `.claude/worktrees/` needs no approval). It moves the session's directory, write access and project config (the folder `CLAUDE.md` files, settings) into the worktree. From now on, work only there.
+     If `EnterWorktree` isn't available in this Claude Code version: stay in the main checkout, work with absolute paths into the worktree, and tell the user once that the worktree's folder `CLAUDE.md` files may not load (read them yourself before editing a folder).
    - With `--no-worktree`:
      ```
      python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket> --no-worktree
      ```
      It switches the main checkout to `<Branch>` (creating it from `origin/<Base>` or reusing it) and records `Worktree mode: none`.
    Exit 2: another branch for this BTRC-n exists, or a field is missing: tell the user and stop. Exit 1: git failed (e.g. uncommitted changes in the main checkout): show the message and stop.
-10. Show the output of `git -C "<code root>" status` and `git worktree list`.
+10. In the code root, show the output of `git status` and `git worktree list`.
 
 ## E. Explore (Phase: EXPLORE)
 1. Start 3 `explorer` agents **in one message** (parallel). Same prompt for each, only `n` differs:
    ```
    Feature: <Ticket> "<Title>"
-   Feature directory: <repo root>/docs/features/<Ticket>
+   Feature directory: <absolute code root>/docs/features/<Ticket>
    Code root: <absolute code root>
    Your number n: <1|2|3>
    Explore the whole scope of this feature. Write only explore/explorer-<n>.md.
@@ -259,24 +262,31 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 4. Set `Phase: FINISH`.
 
 ## F. Finish (Phase: FINISH)
-1. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
+Finishing has two parts, because the worktree can't remove itself and the main checkout is off-limits from inside it.
+1. **Part (a), inside the worktree.** If `Finish stage: cleanup` is already in state.md, skip to step 3. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
    ```
    python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>
    ```
-   It checks the code root is on `Branch` (never the base), commits, `git pull --rebase origin <Base>`, pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline, runs `docker compose -p <Compose project> -f … down --remove-orphans`, removes the worktree (skipped when `Worktree mode: none`), and updates the base in the main checkout. Running it again resumes.
+   It checks the code root is on `Branch` (never the base), commits, `git pull --rebase origin <Base>`, pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. Running it again resumes. With `Worktree mode: none` it also does part (b) and sets `Phase: SUMMARY`: go to Z.
 2. Act on the exit code:
    | Code | Do |
    |---|---|
-   | 0 | It set `Phase: SUMMARY`. Go to Z. |
-   | 10 | Rebase conflict: resolve the listed files in the code root (remove every `<<<<<<<`/`>>>>>>>` marker), `git -C "<code root>" add <files>`, run the `test` command, run the script again. Don't run `git rebase --continue` yourself. |
+   | 0 | Part (a) done: it wrote `Finish stage: cleanup` (or `Phase: SUMMARY` without a worktree). Go to step 3 (or Z). |
+   | 10 | Rebase conflict: resolve the listed files in the code root (remove every `<<<<<<<`/`>>>>>>>` marker), `git add <files>`, run the `test` command, run the script again. Don't run `git rebase --continue` yourself. |
    | 20 | Pipeline failed: fix the cause from the log tail in the code root, run the tests, run the script again. |
    | 30 | Push rejected: someone else pushed. The script wrote BLOCKED. Stop. |
    | 1 | Read the message, fix the cause, run again. |
    | 2 | Setup error (state.md fields, wrong branch checked out, or another run is still going). Fix the cause, run again. |
    The script writes BLOCKED itself after 3 runs with the same code.
+3. **Leave the worktree:** call the **`ExitWorktree`** tool (keep the worktree; the script removes it). The session is back in the main checkout. (If the session never entered the worktree, skip this.)
+4. **Part (b), from the main checkout:**
+   ```
+   python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket> --cleanup
+   ```
+   It copies the feature folder back to the main checkout's `docs/features/<Ticket>/`, removes the worktree (the branch stays), pulls the base in the main checkout, and sets `Phase: SUMMARY`. Exit 2 "inside the worktree": call `ExitWorktree` first. Exit 1: read the message (e.g. uncommitted files in the worktree), fix, run again.
 
 ## Z. Summary (Phase: SUMMARY)
-1. Write `docs/features/<Ticket>/summary.md`:
+1. Write `docs/features/<Ticket>/summary.md` (in the main checkout now):
    ```markdown
    # Summary: <Ticket> <feature>
    ## Built

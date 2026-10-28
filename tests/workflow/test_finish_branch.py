@@ -8,9 +8,9 @@ import pytest
 
 import finish_branch
 from conftest import FakeCommands, failed, git, ok
-from feature_state import FeatureState
+from feature_state import FeatureState, load_feature_state
 from finish_branch import failed_job_name, parse_pipeline_state
-from worktree import create_worktree
+from worktree import bring_feature_home, create_worktree
 
 HEAD = "abc1234def5678"
 PIPELINE_PASSED = "(success) build\nPipeline state: success\n"
@@ -65,9 +65,10 @@ def finish_setup(tmp_path: Path, make_feature_state: Callable[..., Path], monkey
     state.save()
     create_worktree(state)
     worktree = repository / ".claude" / "worktrees" / BRANCH
+    feature_directory = worktree / "docs" / "features" / "BTRC-1234"
     (feature_directory / "spec.md").write_text("# Spec: CSV export for entities\n", encoding="utf-8")
     (worktree / "export.py").write_text("rows = []\n", encoding="utf-8")
-    monkeypatch.chdir(repository)
+    monkeypatch.chdir(worktree)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
     return FinishSetup(remote, repository, worktree, feature_directory)
 
@@ -79,13 +80,18 @@ def install_tools(fake_commands: Callable[[bool], FakeCommands], *pipeline_outpu
     return commands
 
 
-def run_finish(monkeypatch: pytest.MonkeyPatch) -> int:
-    monkeypatch.setattr("sys.argv", ["finish_branch.py", "BTRC-1234"])
+def run_finish(monkeypatch: pytest.MonkeyPatch, *extra_arguments: str) -> int:
+    monkeypatch.setattr("sys.argv", ["finish_branch.py", "BTRC-1234", *extra_arguments])
     return finish_branch.main()
 
 
+def run_cleanup(monkeypatch: pytest.MonkeyPatch, setup: FinishSetup) -> int:
+    monkeypatch.chdir(setup.repository)
+    return run_finish(monkeypatch, "--cleanup")
+
+
 def state_of(setup: FinishSetup) -> FeatureState:
-    return FeatureState.load(setup.feature_directory / "state.md")
+    return load_feature_state("BTRC-1234", setup.repository)
 
 
 def remote_log(setup: FinishSetup, reference: str) -> str:
@@ -102,17 +108,56 @@ def test_finish_branch_happy_path_pushes_cleans_up_and_updates_the_base(
     commit_files(colleague, {"other.py": "x = 1\n"}, "colleague work on master")
     git(colleague, "push", "--quiet", "origin", "master")
 
-    exit_code = run_finish(monkeypatch)
+    part_a_exit = run_finish(monkeypatch)
+    after_part_a = state_of(finish_setup)
+    worktree_kept_after_part_a = finish_setup.worktree.exists()
+    cleanup_exit = run_cleanup(monkeypatch, finish_setup)
 
     state = state_of(finish_setup)
-    assert exit_code == 0
+    assert part_a_exit == 0
+    assert after_part_a.field("Phase") == "FINISH"
+    assert after_part_a.field("Finish stage") == "cleanup"
+    assert worktree_kept_after_part_a
+    assert cleanup_exit == 0
     assert "BTRC-1234: CSV export for entities" in remote_log(finish_setup, BRANCH)
     assert "colleague work on master" in remote_log(finish_setup, BRANCH)
     assert state.field("Pushed") == git(finish_setup.remote, "rev-parse", BRANCH).strip()
     assert state.field("Phase") == "SUMMARY"
+    assert state.feature_directory == finish_setup.repository / "docs" / "features" / "BTRC-1234"
+    assert (state.feature_directory / "spec.md").is_file()
+    assert not (state.feature_directory / ".running.json").exists()
     assert not finish_setup.worktree.exists()
     assert "docker compose -p btrc-1234 -f docker-compose.yml down --remove-orphans" in commands.commands()
     assert (finish_setup.repository / "other.py").is_file()
+
+
+def test_finish_branch_cleanup_from_inside_the_worktree_is_refused(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    install_tools(fake_commands)
+    run_finish(monkeypatch)
+
+    exit_code = run_finish(monkeypatch, "--cleanup")
+
+    assert exit_code == 2
+    assert "Call ExitWorktree first" in capsys.readouterr().out
+    assert finish_setup.worktree.exists()
+
+
+def test_finish_branch_cleanup_before_part_a_is_refused(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+
+    exit_code = run_cleanup(monkeypatch, finish_setup)
+
+    assert exit_code == 2
+    assert finish_setup.worktree.exists()
 
 
 def test_finish_branch_conflict_with_one_file_left_unresolved_never_commits_markers(
@@ -266,6 +311,7 @@ def test_finish_branch_rerun_after_the_worktree_was_removed_only_finishes_the_re
 ):
     install_tools(fake_commands)
     assert run_finish(monkeypatch) == 0
+    assert run_cleanup(monkeypatch, finish_setup) == 0
     commands = install_tools(fake_commands)
 
     exit_code = run_finish(monkeypatch)
@@ -301,7 +347,7 @@ def test_finish_branch_while_another_run_is_going_is_a_setup_error(
     exit_code = run_finish(monkeypatch)
 
     assert exit_code == 2
-    assert len(commands.commands()) == 0
+    assert all(command == "git rev-parse --git-common-dir" for command in commands.commands())
 
 
 @pytest.mark.parametrize(
@@ -329,8 +375,10 @@ def test_failed_job_name_keeps_spaces_inside_the_name():
     assert job_name == "unit tests"
 
 
-def switch_to_main_checkout(setup: FinishSetup) -> FeatureState:
+def switch_to_main_checkout(setup: FinishSetup, monkeypatch: pytest.MonkeyPatch) -> FeatureState:
     changed = (setup.worktree / "export.py").read_text(encoding="utf-8")
+    bring_feature_home(state_of(setup))
+    monkeypatch.chdir(setup.repository)
     git(setup.repository, "worktree", "remove", "--force", str(setup.worktree))
     git(setup.repository, "switch", "--quiet", BRANCH)
     (setup.repository / "export.py").write_text(changed, encoding="utf-8")
@@ -347,7 +395,7 @@ def test_finish_branch_without_worktree_finishes_in_the_main_checkout(
     fake_commands: Callable[[bool], FakeCommands],
 ):
     install_tools(fake_commands)
-    switch_to_main_checkout(finish_setup)
+    switch_to_main_checkout(finish_setup, monkeypatch)
 
     exit_code = run_finish(monkeypatch)
 
@@ -365,7 +413,7 @@ def test_finish_branch_without_worktree_on_the_wrong_branch_is_a_setup_error(
     capsys: pytest.CaptureFixture[str],
 ):
     commands = install_tools(fake_commands)
-    switch_to_main_checkout(finish_setup)
+    switch_to_main_checkout(finish_setup, monkeypatch)
     git(finish_setup.repository, "switch", "--quiet", "master")
 
     exit_code = run_finish(monkeypatch)
