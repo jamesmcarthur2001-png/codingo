@@ -12,3 +12,4 @@ Full rules: the vue-conventions skill. The ones that matter most:
   Explicit checks: val !== null && val !== undefined, str.trim().length === 0, arr.length === 0.
 - Every async view: loading, empty (with a message) and error states. Errors via showGlobalSnackbar, no console.log.
 - API calls only under requests/.
+- No eslint-disable, @ts-ignore, @ts-expect-error. Fix the code instead.

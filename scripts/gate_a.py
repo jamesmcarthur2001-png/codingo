@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 """
 Gate A: checks everything Beatrice would reject before she reads a line, and keeps the list of dismissed findings.
 
-Usage: python gate_a.py BTRC-1234            run the gate
-       python gate_a.py BTRC-1234 --dismissed  print the dismissed findings
-Exit codes: 0 passed, 1 failed, 2 the feature can't be found or has no commands.
+Usage: python3 gate_a.py BTRC-1234              run the gate
+       python3 gate_a.py BTRC-1234 --dismissed  print the dismissed findings
+Exit codes: 0 passed, 1 failed, 2 setup error (no feature, no commands, a coverage command without
+--include-untracked, git failed, or another long step of the feature is running).
 
 :author: midnight-workflow
 :date: 28/10/2026
@@ -19,7 +21,9 @@ from pathlib import Path
 
 import command_runner
 from check_slice import BranchReport, check_branch
-from feature_state import FeatureNotFoundError, FeatureState, load_feature_state, running_marker
+from feature_state import FeatureNotFoundError, FeatureState, StepAlreadyRunningError, load_feature_state, refresh_running_marker, running_marker
+from git_changes import GitError
+from line_checks import FRONTEND_SUFFIXES, PYTHON_SUFFIXES
 from scope_check import allowed_for_branch
 
 # ----- Consts ----- #
@@ -28,10 +32,13 @@ FAILED_EXIT_CODE = 1
 SETUP_ERROR_EXIT_CODE = 2
 COMMAND_TIMEOUT_SECONDS = 45 * 60
 OUTPUT_TAIL_LINES = 40
+MAX_BEATRICE_ROUNDS = 5
 COMMAND_LINE_PATTERN = re.compile(
     r"^\s*[-*]\s+(?P<name>[\w-]+)\s*:\s*(?P<command>.+)$",
 )
 COVERAGE_COMMAND_PREFIX = "coverage"
+INCLUDE_UNTRACKED_FLAG = "--include-untracked"
+NO_COVERAGE_LINES_MARKER = "No lines with coverage information in this diff"
 MISSING_LINES_PATTERN = re.compile(
     r"^(?P<path>\S.*?) \((?P<percent>[\d.]+)%\): Missing lines (?P<lines>[\d, -]+)$",
 )
@@ -39,8 +46,12 @@ EXEMPTION_PATTERN = re.compile(
     r"^\s*[-*]\s+`?(?P<path>[^`:\s]+)`?:(?P<lines>[\d,-]+)(?:(?:\s*:\s*|\s+-\s+)(?P<reason>.*))?\s*$",
 )
 TRIAGE_ROUND_PATTERN = re.compile(r"^##\s+Round\s+(?P<number>\d+)", re.IGNORECASE)
-LOCATION_PATTERN = re.compile(r"(?P<path>[\w./\\-]+\.\w+):(?P<line>\d+)")
+LOCATION_PATTERN = re.compile(r"(?P<path>[\w./-]+\.\w+):(?P<line>\d+)")
+TEST_PATH_PATTERN = re.compile(
+    r"(?:^|/)(?:tests?|__tests__)/|(?:^|/)test_[^/]*$|\.(?:spec|test)\.\w+$",
+)
 TRIAGE_MIN_CELLS = 7
+TRIAGE_ID_CELL = 0
 TRIAGE_LOCATION_CELL = 2
 TRIAGE_RULE_CELL = 3
 TRIAGE_DECISION_CELL = 5
@@ -56,13 +67,14 @@ REVIEW_DIRECTORY_NAME = "review"
 @dataclass(frozen=True)
 class Dismissal:
     """
-    A Beatrice finding the orchestrator dismissed, keyed by file, rule and the flagged line's text.
+    A Beatrice finding the orchestrator dismissed, keyed by file, rule and the flagged line's text as it was when Beatrice flagged it.
     """
     file: str
     rule: str
     line_text: str
     round: int
     reason: str
+    finding_id: str = ""
 
     def matches(self, file: str, rule: str, line_text: str) -> bool:
         """
@@ -70,7 +82,7 @@ class Dismissal:
 
         :param file: The new finding's file.
         :param rule: The new finding's rule (may be empty).
-        :param line_text: The current text of the flagged line.
+        :param line_text: The text of the flagged line.
         :return: Whether file and line text match, and the rules match when both have one.
         """
         if self.line_text == "" or normalize_path(file) != normalize_path(self.file):
@@ -98,20 +110,46 @@ def read_line_text(code_root: Path, file: str, line: int) -> str:
     return source_lines[line - 1].strip()
 
 
-def parse_triage(triage_text: str, code_root: Path) -> list[Dismissal]:
+def review_directory(feature_directory: Path) -> Path:
+    return feature_directory / REVIEW_DIRECTORY_NAME
+
+
+def load_round_findings(feature_directory: Path, round_number: int) -> dict[str, dict[str, object]]:
+    """
+    Read the findings run_beatrice.py stored for a round, with the flagged line text captured when it ran.
+
+    :param feature_directory: The feature's directory.
+    :param round_number: The Beatrice round.
+    :return: Finding id (e.g. `R2-3`) to its record; empty when the round has no record file.
+    """
+    path = review_directory(feature_directory) / f"beatrice-{round_number}.json"
+    if not path.is_file():
+        return {}
+    records = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        str(record["id"]): record
+        for record in records
+        if isinstance(record, dict) and "id" in record
+    }
+
+
+def parse_triage(triage_text: str, feature_directory: Path, code_root: Path) -> list[Dismissal]:
     """
     Read the dismissed findings from review/triage.md.
 
     :param triage_text: The triage file. Rows: `| # | Marks | File:line | Rule | Finding | Decision | Reason |`, under `## Round <n>`.
-    :param code_root: Where the flagged files live, to read the flagged lines.
-    :return: One dismissal per `dismiss` row that names a file and line.
+    :param feature_directory: The feature's directory, holding the rounds' finding records.
+    :param code_root: Where the flagged files live, for rows whose id isn't in a record.
+    :return: One dismissal per `dismiss` row; the line text comes from the round's record when the id is there.
     """
     dismissals: list[Dismissal] = []
     round_number = 0
+    round_findings: dict[str, dict[str, object]] = {}
     for triage_line in triage_text.splitlines():
         round_match = TRIAGE_ROUND_PATTERN.match(triage_line)
         if round_match is not None:
             round_number = int(round_match.group("number"))
+            round_findings = load_round_findings(feature_directory, round_number)
             continue
 
         cells = [cell.strip() for cell in triage_line.strip().strip("|").split("|")]
@@ -121,14 +159,29 @@ def parse_triage(triage_text: str, code_root: Path) -> list[Dismissal]:
         if not cells[TRIAGE_DECISION_CELL].lower().startswith(DISMISS_DECISION):
             continue
 
-        location = LOCATION_PATTERN.search(cells[TRIAGE_LOCATION_CELL])
-        if location is None:
-            continue
-
         reason = cells[TRIAGE_REASON_CELL]
         decision_reason = cells[TRIAGE_DECISION_CELL].partition(":")[2].strip()
         if reason == "" and decision_reason != "":
             reason = decision_reason
+        finding_id = cells[TRIAGE_ID_CELL].strip("`")
+        record = round_findings.get(finding_id)
+        if record is not None:
+            dismissals.append(
+                Dismissal(
+                    normalize_path(str(record.get("file", ""))),
+                    str(record.get("rule", "")),
+                    str(record.get("line_text", "")),
+                    round_number,
+                    reason,
+                    finding_id,
+                ),
+            )
+            continue
+
+        location = LOCATION_PATTERN.search(cells[TRIAGE_LOCATION_CELL])
+        if location is None:
+            continue
+
         dismissals.append(
             Dismissal(
                 normalize_path(location.group("path")),
@@ -140,6 +193,7 @@ def parse_triage(triage_text: str, code_root: Path) -> list[Dismissal]:
                 ),
                 round_number,
                 reason,
+                finding_id,
             ),
         )
 
@@ -147,7 +201,7 @@ def parse_triage(triage_text: str, code_root: Path) -> list[Dismissal]:
 
 
 def dismissed_path(feature_directory: Path) -> Path:
-    return feature_directory / REVIEW_DIRECTORY_NAME / DISMISSED_FILE_NAME
+    return review_directory(feature_directory) / DISMISSED_FILE_NAME
 
 
 def load_dismissed(feature_directory: Path) -> list[Dismissal]:
@@ -157,26 +211,35 @@ def load_dismissed(feature_directory: Path) -> list[Dismissal]:
     return [Dismissal(**entry) for entry in json.loads(path.read_text(encoding="utf-8"))]
 
 
+def is_stored(dismissal: Dismissal, dismissed: list[Dismissal]) -> bool:
+    for known in dismissed:
+        if dismissal.finding_id != "" and (known.round, known.finding_id) == (dismissal.round, dismissal.finding_id):
+            return True
+
+        is_same_key = (known.file, known.rule, known.line_text) == (dismissal.file, dismissal.rule, dismissal.line_text)
+        if is_same_key:
+            return True
+
+    return False
+
+
 def sync_dismissed(state: FeatureState) -> list[Dismissal]:
     """
-    Add the dismissals in review/triage.md to review/dismissed.json, keeping earlier ones.
+    Add new dismissals from review/triage.md to review/dismissed.json; rows already stored are never read again.
 
     :param state: The feature's state.
     :return: Every dismissal known so far.
     """
     dismissed = load_dismissed(state.feature_directory)
-    triage_path = state.feature_directory / REVIEW_DIRECTORY_NAME / TRIAGE_FILE_NAME
+    triage_path = review_directory(state.feature_directory) / TRIAGE_FILE_NAME
     if not triage_path.is_file():
         return dismissed
     for dismissal in parse_triage(
         triage_path.read_text(encoding="utf-8"),
+        state.feature_directory,
         state.code_root(),
     ):
-        is_known = any(
-            known.file == dismissal.file and known.rule == dismissal.rule and known.line_text == dismissal.line_text
-            for known in dismissed
-        )
-        if not is_known:
+        if not is_stored(dismissal, dismissed):
             dismissed.append(dismissal)
 
     path = dismissed_path(state.feature_directory)
@@ -203,6 +266,18 @@ def find_dismissal(dismissed: list[Dismissal], file: str, rule: str, line_text: 
     return None
 
 
+def is_round_triaged(feature_directory: Path, round_number: int) -> bool:
+    triage_path = review_directory(feature_directory) / TRIAGE_FILE_NAME
+    if not triage_path.is_file():
+        return False
+    for triage_line in triage_path.read_text(encoding="utf-8").splitlines():
+        round_match = TRIAGE_ROUND_PATTERN.match(triage_line)
+        if round_match is not None and int(round_match.group("number")) == round_number:
+            return True
+
+    return False
+
+
 def parse_commands(state: FeatureState) -> list[tuple[str, str]]:
     commands: list[tuple[str, str]] = []
     for command_line in state.section("Commands"):
@@ -213,6 +288,14 @@ def parse_commands(state: FeatureState) -> list[tuple[str, str]]:
             )
 
     return commands
+
+
+def coverage_commands_without_untracked(commands: list[tuple[str, str]]) -> list[str]:
+    return [
+        name
+        for name, command in commands
+        if name.startswith(COVERAGE_COMMAND_PREFIX) and INCLUDE_UNTRACKED_FLAG not in command
+    ]
 
 
 def expand_line_ranges(raw_ranges: str) -> set[int]:
@@ -239,7 +322,7 @@ def parse_exemptions(state: FeatureState) -> tuple[dict[str, set[int]], list[str
     Read the coverage exemptions of state.md.
 
     :param state: The feature's state, with `- path:lines: reason` lines under `## Coverage exemptions`.
-    :return: The exempt lines per file, and the exemptions that give no reason.
+    :return: The exempt lines per repo-relative file, and the exemptions that give no reason.
     """
     exemptions: dict[str, set[int]] = {}
     without_reason: list[str] = []
@@ -266,7 +349,7 @@ def uncovered_lines(output: str, exemptions: dict[str, set[int]]) -> list[str]:
     Read diff-cover's missing lines and drop the exempt ones.
 
     :param output: diff-cover's console output.
-    :param exemptions: The exempt lines per file.
+    :param exemptions: The exempt lines per repo-relative file (matched by the full path only).
     :return: `file: lines` entries still uncovered.
     """
     entries: list[str] = []
@@ -277,12 +360,7 @@ def uncovered_lines(output: str, exemptions: dict[str, set[int]]) -> list[str]:
 
         path = normalize_path(missing_match.group("path"))
         missing = expand_line_ranges(missing_match.group("lines"))
-        exempt: set[int] = set()
-        for exempt_path, exempt_lines in exemptions.items():
-            if path.endswith(exempt_path) or exempt_path.endswith(path):
-                exempt.update(exempt_lines)
-
-        remaining = sorted(missing - exempt)
+        remaining = sorted(missing - exemptions.get(path, set()))
         if len(remaining) > 0:
             entries.append(
                 f"{path}: {', '.join(str(line) for line in remaining)}",
@@ -291,20 +369,63 @@ def uncovered_lines(output: str, exemptions: dict[str, set[int]]) -> list[str]:
     return entries
 
 
+def has_changed_code(changed: list[str]) -> bool:
+    return any(
+        Path(path).suffix in PYTHON_SUFFIXES + FRONTEND_SUFFIXES and TEST_PATH_PATTERN.search(path) is None
+        for path in changed
+    )
+
+
 def output_tail(output: str) -> str:
     return "\n".join(output.strip().splitlines()[-OUTPUT_TAIL_LINES:])
 
 
-def run_project_commands(state: FeatureState) -> list[str]:
+def coverage_failure(
+    name: str,
+    command: str,
+    result: command_runner.CommandResult,
+    exemptions: dict[str, set[int]],
+    changed_code: bool,
+) -> str | None:
+    """
+    Judge one diff-cover run.
+
+    :param name: The command's name in state.md.
+    :param command: The command.
+    :param result: What it returned.
+    :param exemptions: The exempt lines per file.
+    :param changed_code: Whether the branch changed non-test code.
+    :return: The failure description, or None when coverage is complete.
+    """
+    uncovered = uncovered_lines(result.output, exemptions)
+    if len(uncovered) > 0:
+        return (
+            f"{name}: changed lines without coverage (add tests, or a `- path:lines: reason` exemption in state.md):\n"
+            + "\n".join(f"  {entry}" for entry in uncovered)
+        )
+    if NO_COVERAGE_LINES_MARKER in result.output and changed_code:
+        return f"{name}: diff-cover saw no changed lines, but the branch changed code. Check the report path and {INCLUDE_UNTRACKED_FLAG}."
+    has_missing_lines = any(
+        MISSING_LINES_PATTERN.match(output_line.strip()) is not None
+        for output_line in result.output.splitlines()
+    )
+    if not result.succeeded and not has_missing_lines:
+        return f"{name} failed (`{command}`):\n{output_tail(result.output)}"
+    return None
+
+
+def run_project_commands(state: FeatureState, changed: list[str]) -> list[str]:
     """
     Run the lint, typecheck, test and coverage commands from state.md.
 
     :param state: The feature's state, with `- name: command` lines under `## Commands`.
+    :param changed: The files the branch changed.
     :return: One failure description per failing command.
     """
     exemptions, without_reason = parse_exemptions(state)
     failures = [f"Coverage exemption without a reason: {exemption}" for exemption in without_reason]
     for name, command in parse_commands(state):
+        refresh_running_marker(state.feature_directory, f"gate A: {name}")
         result = command_runner.run_command(
             command,
             state.code_root(),
@@ -317,22 +438,15 @@ def run_project_commands(state: FeatureState) -> list[str]:
                 )
             continue
 
-        uncovered = uncovered_lines(result.output, exemptions)
-        if len(uncovered) > 0:
-            failures.append(
-                f"{name}: changed lines without coverage (add tests, or a `- path:lines: reason` exemption in state.md):\n"
-                + "\n".join(f"  {entry}" for entry in uncovered),
-            )
-            continue
-
-        has_missing_lines = any(
-            MISSING_LINES_PATTERN.match(output_line.strip()) is not None
-            for output_line in result.output.splitlines()
+        failure = coverage_failure(
+            name,
+            command,
+            result,
+            exemptions,
+            has_changed_code(changed),
         )
-        if not result.succeeded and not has_missing_lines:
-            failures.append(
-                f"{name} failed (`{command}`):\n{output_tail(result.output)}",
-            )
+        if failure is not None:
+            failures.append(failure)
 
     return failures
 
@@ -343,12 +457,20 @@ def run_gate(state: FeatureState) -> tuple[BranchReport, list[str]]:
             state,
             allowed_for_branch(state.feature_directory),
         )
-        failures = run_project_commands(state)
+        failures = run_project_commands(state, report.changed)
 
     return report, failures
 
 
 def record_gate_result(state: FeatureState, passed: bool) -> str:
+    """
+    Advance state.md after the gate, or count the failed try.
+
+    :param state: The feature's state.
+    :param passed: Whether the gate passed.
+    :return: A line telling the orchestrator what happens next.
+    """
+    state.reload()
     round_number = max(state.number_field("Round"), 1)
     if not passed:
         failed_runs = state.record_failure(f"GATE-A-{round_number}")
@@ -358,6 +480,14 @@ def record_gate_result(state: FeatureState, passed: bool) -> str:
         return f"Gate A failed (try {failed_runs}). Fix the items above and run this again."
     state.reset_tries()
     state.set_field("Round", str(round_number))
+    is_last_round_done = round_number >= MAX_BEATRICE_ROUNDS and is_round_triaged(state.feature_directory, round_number)
+    if is_last_round_done:
+        state.set_field("Phase", "FINISH")
+        state.log(
+            f"Gate A passed after the fixes of Beatrice round {round_number}, the last one",
+        )
+        state.save()
+        return f"Gate A passed. Round {round_number} was the last Beatrice round: Phase is now FINISH."
     state.set_field("Phase", "GATE-B")
     state.log(
         f"Gate A passed before Beatrice round {round_number}",
@@ -394,12 +524,23 @@ def main() -> int:
     if arguments.dismissed:
         print_dismissed(dismissed)
         return 0
-    if len(parse_commands(state)) == 0:
+    commands = parse_commands(state)
+    if len(commands) == 0:
         print(
             "state.md has no `## Commands` (`- lint: ...`, `- typecheck: ...`, `- test: ...`, `- coverage: ...`). Add them first.",
         )
         return SETUP_ERROR_EXIT_CODE
-    report, failures = run_gate(state)
+    missing_untracked = coverage_commands_without_untracked(commands)
+    if len(missing_untracked) > 0:
+        print(
+            f"Coverage commands without {INCLUDE_UNTRACKED_FLAG} (new files are untracked until finish): {', '.join(missing_untracked)}.",
+        )
+        return SETUP_ERROR_EXIT_CODE
+    try:
+        report, failures = run_gate(state)
+    except (GitError, StepAlreadyRunningError) as setup_error:
+        print(f"Setup error: {setup_error}")
+        return SETUP_ERROR_EXIT_CODE
     rendered_report = report.render()
     if rendered_report != "":
         print(rendered_report + "\n")

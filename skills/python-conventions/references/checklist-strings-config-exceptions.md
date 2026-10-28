@@ -4,7 +4,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 
 ## Strings & configuration
 - [ ] PY-34 Strings of 5+ words (SQL, templates, long non-error messages) are named constants. Error messages, anything in `raise`, strings inside models and error classes, settings and similar stay inline, even when repeated. Strings in tests stay inline.
-- [ ] PY-55 No constant holds a short string (4 words or fewer), unless it's an important key such as a settings key inside a dict, which is always a constant
+- [ ] PY-55 No constant holds a short string (4 words or fewer) or a settings string (settings stay inline). The 5+ threshold is deliberately higher than the frontend's 4+.
 - [ ] PY-33 (auto for URL and localhost literals) URLs, hosts, ports, DB names, credentials, and keys come from `.env` via settings (never hardcoded)
 
 ## Classes & models

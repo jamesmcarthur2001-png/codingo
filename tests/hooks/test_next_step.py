@@ -6,8 +6,12 @@ from pathlib import Path
 import pytest
 
 
-def stop_payload(repository: Path) -> dict[str, object]:
-    return {"hook_event_name": "Stop", "cwd": str(repository), "stop_hook_active": False}
+FEATURE_COMMAND = Path(__file__).resolve().parents[2] / "commands" / "feature.md"
+PHASES_LINE_PREFIX = "Phases after approval:"
+
+
+def stop_payload(repository: Path, session_id: str = "session-1") -> dict[str, object]:
+    return {"hook_event_name": "Stop", "cwd": str(repository), "stop_hook_active": False, "session_id": session_id}
 
 
 def decision(completed: object) -> dict[str, object]:
@@ -134,3 +138,111 @@ def test_next_step_reviewer_role_allows(tmp_path: Path, make_feature_state: Call
     completed = run_hook("next_step.py", stop_payload(tmp_path), {"MIDNIGHT_ROLE": "reviewer"})
 
     assert decision(completed) == {}
+
+
+def test_next_step_first_stop_records_session_and_other_sessions_are_ignored(
+    tmp_path: Path,
+    make_feature_state: Callable[..., Path],
+    run_hook: Callable[..., object],
+):
+    feature_directory = make_feature_state(tmp_path)
+
+    first = run_hook("next_step.py", stop_payload(tmp_path, "orchestrator"))
+    other = run_hook("next_step.py", stop_payload(tmp_path, "someone-else"))
+
+    assert decision(first)["decision"] == "block"
+    assert decision(other) == {}
+    assert "Session: orchestrator" in (feature_directory / "state.md").read_text(encoding="utf-8")
+    assert "BLOCKED" not in (feature_directory / "state.md").read_text(encoding="utf-8")
+
+
+def test_next_step_other_session_never_trips_the_breaker(
+    tmp_path: Path,
+    make_feature_state: Callable[..., Path],
+    run_hook: Callable[..., object],
+):
+    feature_directory = make_feature_state(tmp_path)
+    run_hook("next_step.py", stop_payload(tmp_path, "orchestrator"))
+
+    for _ in range(12):
+        run_hook("next_step.py", stop_payload(tmp_path, "someone-else"))
+
+    assert "Status: RUNNING" in (feature_directory / "state.md").read_text(encoding="utf-8")
+
+
+def test_next_step_approved_with_date_blocks(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    make_feature_state(tmp_path, approved="yes (28/10/2026)")
+
+    completed = run_hook("next_step.py", stop_payload(tmp_path))
+
+    assert decision(completed)["decision"] == "block"
+
+
+def test_next_step_corrupt_counter_counts_as_missing(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    feature_directory = make_feature_state(tmp_path)
+    (feature_directory / ".stop-hook.json").write_text("{not json", encoding="utf-8")
+
+    completed = run_hook("next_step.py", stop_payload(tmp_path))
+
+    assert decision(completed)["decision"] == "block"
+    assert json.loads((feature_directory / ".stop-hook.json").read_text(encoding="utf-8"))["blocks"] == 1
+
+
+def test_next_step_corrupt_running_marker_counts_as_missing(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    feature_directory = make_feature_state(tmp_path, phase="GATE-B")
+    (feature_directory / ".running.json").write_text("garbage", encoding="utf-8")
+
+    completed = run_hook("next_step.py", stop_payload(tmp_path))
+
+    assert decision(completed)["decision"] == "block"
+
+
+def test_next_step_allowed_stop_resets_the_counter(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    feature_directory = make_feature_state(tmp_path, phase="GATE-B")
+    run_hook("next_step.py", stop_payload(tmp_path))
+    marker = {"step": "beatrice round 1", "started": time.time()}
+    (feature_directory / ".running.json").write_text(json.dumps(marker), encoding="utf-8")
+
+    run_hook("next_step.py", stop_payload(tmp_path))
+
+    assert not (feature_directory / ".stop-hook.json").exists()
+
+
+def test_next_step_phases_match_feature_command():
+    from next_step import STEP_TEMPLATES
+
+    phases_line = next(
+        line
+        for line in FEATURE_COMMAND.read_text(encoding="utf-8").splitlines()
+        if line.startswith(PHASES_LINE_PREFIX)
+    )
+    command_phases = [phase.strip() for phase in phases_line.removeprefix(PHASES_LINE_PREFIX).split(",")]
+
+    assert command_phases == list(STEP_TEMPLATES)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        'python3 "$HOME/.claude/midnight-workflow/scripts/check_slice.py" <Ticket> <Slice>',
+        'python3 "$HOME/.claude/midnight-workflow/scripts/gate_a.py" <Ticket>',
+        'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" <Ticket> <Round>',
+        'python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>',
+        "keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: FINISH`",
+        "If `review/triage.md` already has `## Round <Round>`",
+    ],
+)
+def test_next_step_feature_command_holds_the_steps_the_hook_names(fragment: str):
+    assert fragment in FEATURE_COMMAND.read_text(encoding="utf-8")
+
+
+def test_next_step_gate_b_text_matches_the_round_five_rule(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    feature_directory = make_feature_state(tmp_path, phase="GATE-B")
+    state_path = feature_directory / "state.md"
+    state_path.write_text(state_path.read_text(encoding="utf-8").replace("Round: 1", "Round: 5"), encoding="utf-8")
+
+    reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
+
+    assert "keep `Round: 5`, `Phase: GATE-A`" in reason
+    assert "already has `## Round 5`" in reason
+    assert 'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" BTRC-1234 5' in reason

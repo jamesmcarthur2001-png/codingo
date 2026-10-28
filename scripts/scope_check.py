@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Reads which files each slice of plan.md and the test plan may touch, and finds changed files outside them.
 
@@ -7,7 +8,6 @@ Reads which files each slice of plan.md and the test plan may touch, and finds c
 # ----- Imports ----- #
 
 import re
-from fnmatch import fnmatch
 from pathlib import Path
 
 # ----- Consts ----- #
@@ -108,6 +108,35 @@ def parse_test_plan_files(test_plan_text: str) -> list[str]:
     return files
 
 
+def glob_to_regex(pattern: str) -> re.Pattern[str]:
+    """
+    Turn a plan glob into a regex where `*` and `?` stay inside one folder and `**` crosses folders.
+
+    :param pattern: e.g. `frontend/src/**/*.vue`.
+    :return: The compiled pattern, matched against the whole path.
+    """
+    regex_parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            regex_parts.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            regex_parts.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            regex_parts.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            regex_parts.append("[^/]")
+            index += 1
+        else:
+            regex_parts.append(re.escape(pattern[index]))
+            index += 1
+
+    return re.compile("".join(regex_parts))
+
+
 def matches_allowed(path: str, allowed_patterns: list[str]) -> bool:
     """
     Tell whether a changed file is covered by an allowed path, folder or glob.
@@ -120,7 +149,7 @@ def matches_allowed(path: str, allowed_patterns: list[str]) -> bool:
         if pattern.endswith("/") and path.startswith(pattern):
             return True
 
-        if path == pattern or fnmatch(path, pattern):
+        if path == pattern or glob_to_regex(pattern).fullmatch(path) is not None:
             return True
 
     return False

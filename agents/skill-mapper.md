@@ -1,6 +1,6 @@
 ---
 name: skill-mapper
-description: "Proposes the set of Claude skills a library needs, for /midnight-workflow:map-library: what each skill covers, its trigger description, its source files, and the build order. Read-only except for skill-map.md."
+description: "Proposes the set of Claude skills a library needs, for /map-library: what each skill covers, its trigger description, its source files, and the build order. Read-only except for skill-map.md."
 tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 ---

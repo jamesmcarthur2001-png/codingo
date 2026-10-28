@@ -5,16 +5,23 @@ import pytest
 
 NEW_TEST_SOURCE = "def test_read_entity_missing_id_raises_entity_not_found_error():\n    assert True\n"
 FRONTEND_TEST_SOURCE = "it('shows a loading state while fetching entities', () => {\n  expect(1).toBe(1)\n})\n"
+PLAN_HEADER = "| Test name | What it checks | Expected result | File |\n|---|---|---|---|\n"
+
+
+def plan_row(test_name: str) -> str:
+    return f"| `{test_name}` | something | a result | `services/evermore/tests/entities/test_reader.py` |\n"
 
 
 @pytest.fixture
-def make_feature(tmp_path: Path) -> Callable[[str | None], Path]:
-    def _make(test_plan: str | None) -> Path:
-        features_directory = tmp_path / "docs" / "features"
-        (features_directory / "entity-reader").mkdir(parents=True)
-        (features_directory / ".active").write_text("entity-reader\n", encoding="utf-8")
+def make_feature(tmp_path: Path, make_feature_state: Callable[..., Path]) -> Callable[..., Path]:
+    def _make(test_plan: str | None, approved: str = "yes") -> Path:
+        feature_directory = make_feature_state(
+            tmp_path,
+            phase="TESTS",
+            approved=approved,
+        )
         if test_plan is not None:
-            (features_directory / "entity-reader" / "test-plan.md").write_text(test_plan, encoding="utf-8")
+            (feature_directory / "test-plan.md").write_text(PLAN_HEADER + test_plan, encoding="utf-8")
         return tmp_path
 
     return _make
@@ -36,6 +43,24 @@ def test_guard_test_plan_no_active_feature_allows(tmp_path: Path, run_hook: Call
     assert completed.returncode == 0
 
 
+def test_guard_test_plan_feature_not_approved_allows(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
+    project = make_feature(None, approved="no")
+
+    completed = run_hook("guard_test_plan.py", write_payload(project, "test_reader.py", NEW_TEST_SOURCE))
+
+    assert completed.returncode == 0
+
+
+def test_guard_test_plan_blocked_feature_allows(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
+    project = make_feature(None)
+    state_path = project / "docs" / "features" / "BTRC-1234" / "state.md"
+    state_path.write_text(state_path.read_text(encoding="utf-8").replace("Status: RUNNING", "Status: BLOCKED: old"), encoding="utf-8")
+
+    completed = run_hook("guard_test_plan.py", write_payload(project, "test_reader.py", NEW_TEST_SOURCE))
+
+    assert completed.returncode == 0
+
+
 def test_guard_test_plan_missing_test_plan_blocks(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
     project = make_feature(None)
 
@@ -46,7 +71,7 @@ def test_guard_test_plan_missing_test_plan_blocks(make_feature: Callable[..., Pa
 
 
 def test_guard_test_plan_unplanned_test_blocks_with_its_name(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
-    project = make_feature("| T-1 | test_something_else | ... |\n")
+    project = make_feature(plan_row("test_something_else"))
 
     completed = run_hook("guard_test_plan.py", write_payload(project, "test_reader.py", NEW_TEST_SOURCE))
 
@@ -54,16 +79,41 @@ def test_guard_test_plan_unplanned_test_blocks_with_its_name(make_feature: Calla
     assert "test_read_entity_missing_id_raises_entity_not_found_error" in completed.stderr
 
 
+def test_guard_test_plan_prefix_of_a_planned_name_blocks(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
+    project = make_feature(plan_row("test_read_entity_missing_id_raises_entity_not_found_error"))
+
+    completed = run_hook("guard_test_plan.py", write_payload(project, "test_read.py", "def test_read():\n    assert True\n"))
+
+    assert completed.returncode == 2
+    assert "test_read" in completed.stderr
+
+
 def test_guard_test_plan_planned_test_allows(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
-    project = make_feature("| T-1 | test_read_entity_missing_id_raises_entity_not_found_error | ... |\n")
+    project = make_feature(plan_row("test_read_entity_missing_id_raises_entity_not_found_error"))
 
     completed = run_hook("guard_test_plan.py", write_payload(project, "test_reader.py", NEW_TEST_SOURCE))
 
     assert completed.returncode == 0
 
 
+def test_guard_test_plan_project_directory_fallback_finds_the_feature(
+    make_feature: Callable[..., Path],
+    run_hook: Callable[..., object],
+    tmp_path: Path,
+):
+    project = make_feature(plan_row("test_other"))
+    outside = tmp_path.parent / f"{tmp_path.name}-elsewhere"
+    outside.mkdir()
+    payload = write_payload(project, "test_reader.py", NEW_TEST_SOURCE)
+    payload["cwd"] = str(outside)
+
+    completed = run_hook("guard_test_plan.py", payload, {"CLAUDE_PROJECT_DIR": str(project)})
+
+    assert completed.returncode == 2
+
+
 def test_guard_test_plan_unplanned_frontend_test_blocks(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
-    project = make_feature("| T-1 | test_other | ... |\n")
+    project = make_feature(plan_row("test_other"))
 
     completed = run_hook("guard_test_plan.py", write_payload(project, "EntityList.spec.ts", FRONTEND_TEST_SOURCE))
 
@@ -75,7 +125,7 @@ def test_guard_test_plan_unplanned_browser_test_blocks_with_its_name(
     make_feature: Callable[..., Path],
     run_hook: Callable[..., object],
 ):
-    project = make_feature("| T-1 | test_other | ... |\n")
+    project = make_feature(plan_row("test_other"))
     content = "test.describe('Entities', () => {\n  test('user creates an entity and sees it in the list', async ({ page }) => {\n    await test.step('open the create dialog', async () => {})\n  })\n})\n"
     payload = write_payload(project, "create-entity.spec.ts", content)
 
@@ -105,7 +155,7 @@ def test_guard_test_plan_playwright_helper_calls_are_not_tests(
 
 
 def test_guard_test_plan_planned_browser_test_allows(make_feature: Callable[..., Path], run_hook: Callable[..., object]):
-    project = make_feature("| T-7 | browser | `user creates an entity and sees it in the list` | ... |\n")
+    project = make_feature(plan_row("user creates an entity and sees it in the list"))
     content = "test.describe('Entities', () => {\n  test('user creates an entity and sees it in the list', async ({ page }) => {})\n})\n"
     payload = write_payload(project, "create-entity.spec.ts", content)
 

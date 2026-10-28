@@ -5,7 +5,7 @@ argument-hint: "[optional: path to the monorepo root]"
 
 # Map the services
 
-Create or refresh `.claude/skills/service-map/SKILL.md` in the monorepo root (`$ARGUMENTS`, default: the current directory). It's a project skill, so it should be committed and shared with the team. The `/midnight-workflow:feature` workflow reads it in every run.
+Create or refresh `.claude/skills/service-map/SKILL.md` in the monorepo root (`$ARGUMENTS`, default: the current directory). It's a project skill, so it should be committed and shared with the team. The `/feature` workflow reads it in every run.
 
 ## Rules
 - Write facts only. Every filled cell must come from a file you read. Cite the reference file path.

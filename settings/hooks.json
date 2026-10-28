@@ -1,0 +1,47 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Write|Edit|MultiEdit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/guard_test_plan.py\"",
+          "timeout": 15
+        }
+      ]
+    },
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/guard_branch.py\"",
+          "timeout": 45
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Write|Edit|MultiEdit",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/post_edit_checks.py\"",
+          "timeout": 60
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/next_step.py\"",
+          "timeout": 15
+        }
+      ]
+    }
+  ]
+}

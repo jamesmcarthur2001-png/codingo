@@ -1,15 +1,15 @@
 # midnight-workflow
 
-A Claude Code workflow for the midnight-api monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, midnight_models = shared models, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and subagents are used only to explore. The design is in [PROPOSAL.md](PROPOSAL.md) (draft v5).
+A Claude Code workflow for the midnight-api monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, midnight_models = shared models, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and subagents are used only to explore. It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
 
 ```
-/midnight-workflow:feature BTRC-1234 "add CSV export to entities" [base]
+/feature BTRC-1234 "add CSV export to entities" [base]
 
 Before you approve (you answer questions)
-  1 Setup        branch BTRC-1234-<desc>, base, worktree → docs/features/BTRC-1234/state.md
+  1 Setup        branch BTRC-1234-<desc>, base, worktree <repo>/.worktrees/BTRC-1234 → docs/features/BTRC-1234/state.md
   2 Explore      3 explorers in parallel, same full scope → explore/explorer-<n>.md
                  merged into context.md + patterns.md, items marked 3/3 · 2/3 · 1/3
-  3 Grill        questions quote your words first (grill-notes.md)
+  3 Grill        every question quotes your words first (grill-notes.md)
   4 Spec + plan  spec.md, plan.md (2–4 slices, each with its allowed Files)
   5 ★ You approve: the last question
 
@@ -17,44 +17,47 @@ After (no questions; the Stop hook keeps it going until DONE or BLOCKED)
   6 Build        per slice → check_slice.py (lint, types, suppressions, scope; changed lines only)
   7 Tests        test-plan.md (4 columns) → tests → changed-line coverage
   8 Gate A       gate_a.py: project lint/typecheck/test, 100% changed-line coverage or a reason, scope, no suppressions
-  9 Gate B       run_beatrice.py: Beatrice ×2 in parallel, merged 2/2 · 1/2 → triage → fix → Gate A … ≤ 5 rounds
- 10 Finish       finish_branch.py: commit, pull --rebase, push --force-with-lease, pipeline, containers down, worktree removed
+  9 Gate B       run_beatrice.py: Beatrice ×2 in parallel, read-only, merged 2/2 · 1/2 → triage → fix → Gate A … ≤ 5 rounds
+ 10 Finish       finish_branch.py: commit, pull --rebase, push with a lease, pipeline, containers down, worktree removed, base pulled
  11 summary.md
 ```
 
-Dropped connection? `claude --continue`, then `/midnight-workflow:feature resume BTRC-1234`. Every step writes `state.md` first, so nothing is lost.
+Dropped connection? `claude --continue`, then `/feature resume BTRC-1234`. Every step writes `state.md` first, so nothing is lost.
 
 ---
 
-## Contents
+## Install (Ubuntu, user level)
 
-| Path | What |
+Requirements: `python3` ≥ 3.10, `git`, and in the monorepo `uv` (with `ruff`, `mypy`, `pytest-cov`, `diff-cover` as dev dependencies of each Python service), the frontend's `eslint` in `node_modules`, `glab` logged in, and `docker compose`.
+
+```bash
+./install.sh
+```
+
+It copies, and records what it copied in `~/.claude/midnight-workflow/installed-files.txt`:
+
+| From the repo | To |
 |---|---|
-| `commands/feature.md` | The orchestrator (`/midnight-workflow:feature`) |
-| `commands/map-services.md`, `commands/map-library.md` | Generate the `service-map` skill; audit a library's docs (standalone) |
-| `agents/explorer.md` | Explores the whole feature scope; 3 run in parallel |
-| `agents/doc-auditor.md`, `agents/skill-mapper.md` | Used only by `map-library` |
-| `agents/review-*.md` | The old reviewers. Kept, not used by `/feature` (Beatrice replaces them) |
-| `skills/*-conventions`, `sql-conventions` | Conventions, each with short checklists the orchestrator loads per slice |
-| `skills/grill-with-docs`, `write-spec`, `test-plan` | Workflow phases (with templates) |
-| `skills/backend-test-infra`, `vitest-conventions`, `browser-test-conventions` | Test setup per layer |
-| `hooks/hooks.json` | The four hooks below |
-| `scripts/` | Hook scripts, workflow scripts, the convention checker, the mypy wrapper |
-| `claude-md/` | Drafts of the six midnight-api CLAUDE.md files, at their target paths (see its README) |
-| `tests/` | pytest tests for every script and hook |
+| `commands/feature.md`, `map-services.md`, `map-library.md` | `~/.claude/commands/` (`/feature`, `/map-services`, `/map-library`) |
+| `agents/explorer.md`, `doc-auditor.md`, `skill-mapper.md` | `~/.claude/agents/` |
+| `skills/*` | `~/.claude/skills/` |
+| `scripts/**/*.py` | `~/.claude/midnight-workflow/scripts/` (executable) |
+| `settings/hooks.json` | merged into the `hooks` of `~/.claude/settings.json` |
 
-## Install
+The settings merge backs up `settings.json` first (`settings.json.bak-<time>`), keeps every other key and hook, and replaces its own earlier entries, so running `install.sh` again updates without duplicates. A file it would overwrite that it didn't install (e.g. your own `~/.claude/skills/python-conventions`) is backed up under `~/.claude/midnight-workflow/backup/`.
 
-1. **Requirements:** `python` 3.10+ on PATH (hooks and scripts), `git`. In the monorepo: `uv`, and as dev dependencies of each Python service `ruff`, `mypy`, `pytest-cov`, `diff-cover`; the frontend's `eslint` in `node_modules`; `glab` (logged in) for the pipeline step; `docker compose` for the containers step.
-2. **Add the plugin:**
-   ```
-   /plugin marketplace add C:\path\to\claude-workflow
-   /plugin install midnight-workflow@midnight-workflow
-   ```
-   To try it without installing: `claude --plugin-dir C:\path\to\claude-workflow`.
-3. **Copy the CLAUDE.md drafts** from `claude-md/` into midnight-api (see `claude-md/README.md`).
-4. **Generate the service map** once from the monorepo root: `/midnight-workflow:map-services`.
-5. **Point the workflow at Beatrice.** Setup writes `Beatrice command: <path to beatrice-code-review.md>` into each feature's `state.md`; the command file itself is never changed.
+```bash
+./uninstall.sh
+```
+
+removes exactly the recorded files and the workflow's hook entries, and puts the backed-up files back.
+
+Then:
+1. Copy the CLAUDE.md drafts from `claude-md/` into midnight-api (see `claude-md/README.md`).
+2. Generate the service map once from the monorepo root: `/map-services`.
+3. Each feature's `state.md` names the Beatrice command file (`Beatrice command: ~/.claude/commands/beatrice-code-review.md` or the repo's `.claude/commands/`). The file itself is never changed.
+
+`agents/review-*.md` from the old flow are kept in `unused/agents/` and are not installed.
 
 ## Model settings (LiteLLM)
 
@@ -77,58 +80,60 @@ If long answers get cut off with "connection closed mid-response", try a lower `
 
 ## The hooks
 
+All four are user-level, so they run in every repository. Each exits 0 at once when `MIDNIGHT_ROLE=reviewer`.
+
 | Hook | When | What |
 |---|---|---|
-| `post_edit_checks.py` | After every Write/Edit | Runs the convention checker + `ruff` (`.py`) or `eslint` (`.vue`/`.ts`), and the suppression check. Reports **only problems on changed lines**: `git diff -U0 <merge-base with the base> -- <file>`; the whole file when it's new/untracked. The base is the active feature's `Base:`, else `origin/HEAD`, else master/main. |
-| `guard_test_plan.py` | Before Write/Edit of a test file | While a feature is active, blocks a new test whose name isn't in `test-plan.md`. |
-| `guard_branch.py` | Before every Bash command | On `checkout -b/-B`, `switch -c/-C`, `branch <name>`, `branch -m`, `worktree add -b`, `push <remote> <x>:<name>`: runs `git fetch --prune` and blocks if another branch (local or remote) has the same `BTRC-<n>`. No exceptions; create a second one yourself if you really need it. |
-| `next_step.py` | Stop | After approval, refuses to stop until `state.md` says `DONE` or `BLOCKED`, and returns the next step for the current `Phase`. Never blocks before approval. Lets the orchestrator wait while a long script runs (`.running.json`). Circuit breaker: after 8 blocks without `state.md` changing it writes `BLOCKED: no progress` and lets it stop. |
+| `post_edit_checks.py` | After every Write/Edit | Only while an approved, unfinished feature is active for that repo (or with `MIDNIGHT_CHECKS=1`), and only for files in its worktree. Runs the convention checker + `ruff` (`.py`/`.pyi`) or `eslint` (`.vue`/`.ts`/`.js`/…), and the suppression check (code and tool configs). Reports **only problems touching changed lines**: `git diff -U0 <merge-base with the base> -- <file>`; the whole file when it's untracked. `get_` names that existed in the base version aren't reported. |
+| `guard_test_plan.py` | Before Write/Edit of a test file | Only for an approved, unfinished feature: blocks a new test whose exact name isn't in the first column of `test-plan.md`. |
+| `guard_branch.py` | Before every Bash command, everywhere | On `checkout -b/-B/--orphan`, `switch -c/-C/--create[=]`, `branch <name>`, `branch -m`, `worktree add [-b]` (also without `-b`, where the branch is the folder name), `push <remote> <src>:<name>` (not deletes) — also inside `bash -c "…"`, after `VAR=…`/`sudo`/`env`, in `( … )` or after `&` — it fetches (15 s, no prompts) and blocks if another local or remote branch has the same `BTRC-<n>`. If the fetch fails it still checks and says the remote refs may be stale. |
+| `next_step.py` | Stop | After approval, refuses to stop until `state.md` says `DONE` or `BLOCKED`, and returns the next step for the current `Phase`. It records the orchestrator's `session_id` as `Session:` on the first stop and ignores other sessions. Never blocks before approval or while a long script runs (`.running.json`). Circuit breaker: after 8 blocks without `state.md` changing it writes `BLOCKED: no progress`; the counter resets whenever a stop is allowed. |
 
-### `MIDNIGHT_ROLE`
+### Environment variables
 
-Every workflow hook exits 0 at once when the environment variable `MIDNIGHT_ROLE=reviewer` is set. `run_beatrice.py` sets it for the two `claude -p` Beatrice sessions, so the reviewers aren't blocked, checked or kept running by the orchestrator's hooks. Don't set it in your own sessions.
+- `MIDNIGHT_ROLE=reviewer`: set by `run_beatrice.py` for the two `claude -p` Beatrice sessions, so the reviewers aren't blocked, checked or kept running by the orchestrator's hooks. Don't set it in your own sessions.
+- `MIDNIGHT_CHECKS=1`: run the post-edit checks outside a feature too (e.g. while you edit by hand).
 
 ## The workflow scripts
 
-Run from the repository root (the folder that holds `docs/features/`). All read the branch, base, worktree, compose project and Beatrice command from `docs/features/<ticket>/state.md`.
+Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files and Beatrice command from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `run_beatrice`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
 
 | Script | Does | Exit codes |
 |---|---|---|
-| `check_slice.py <T> <n>` | Changed-line checks (conventions, ruff, eslint, `mypy --strict`, suppressions) + scope (files outside slices 1..n fail; changed existing lines are listed). Advances `Slice`/`Phase` on pass. | 0 pass · 1 problems · 2 setup |
-| `gate_a.py <T>` | Same checks over the whole branch (scope = all slices + test-plan files), then every `## Commands` entry; `coverage*` entries are read as diff-cover output and `## Coverage exemptions` are subtracted. Syncs dismissed findings from `review/triage.md` (`--dismissed` prints them). Sets `Phase: GATE-B` on pass. | 0 · 1 · 2 |
-| `run_beatrice.py <T> <round>` | Two `claude -p` sessions in parallel in the worktree, 30 min timeout, one retry each; merges into `review/beatrice-<round>.md` with `2/2`/`1/2` marks and "dismissed in round N, because …" notes. Round 1 is appended to `beatrice-log.md`. | 0 · 1 both runs failed · 2 |
-| `finish_branch.py <T>` | commit → fetch → pull --rebase → push --force-with-lease → `glab ci status` every 30 s (≤ 45 min) → `docker compose -p <project> down` → `git worktree remove`. Each step checks if it's still needed, so a re-run resumes. | 0 done · 10 conflict · 20 pipeline failed · 30 push rejected · 1 other |
+| `check_slice.py <T> <n>` | Changed-line checks (conventions, ruff, eslint, `mypy --strict`, suppressions) + scope (changed, deleted or renamed files outside slices 1..n fail; changed existing lines are listed). Advances `Slice`/`Phase` on pass. | 0 pass · 1 problems · 2 setup (incl. git errors, unknown base) |
+| `gate_a.py <T>` | Same checks over the branch (scope = all slices + test-plan files), then every `## Commands` entry through `bash -lc`; `coverage*` entries must use `diff-cover --include-untracked`, are read as diff-cover output, minus `## Coverage exemptions` (exact repo-relative paths). Fails if diff-cover saw no lines while code changed. Sets `Phase: GATE-B`, or `FINISH` once round 5 is triaged. | 0 · 1 · 2 |
+| `run_beatrice.py <T> <round>` | Two read-only `claude -p --output-format json` sessions in parallel in the worktree (`--disallowedTools Edit,Write,MultiEdit,NotebookEdit`, `--permission-mode default`, a narrow `--allowedTools`), 30 min timeout, one retry each; a slash command that doesn't run is retried with the command file's text. Asks for a machine-readable findings block through `--append-system-prompt` (the command file stays unchanged) and falls back to reading free-form output. Merges into `review/beatrice-<round>.md` (`2/2`/`1/2`, earlier dismissals noted) and `beatrice-<round>.json` (with each flagged line's text, which the dismissed-findings memory uses). Round 1 goes into `beatrice-log.md` once. | 0 · 1 both runs failed · 2 |
+| `finish_branch.py <T>` | Checks the worktree is on `Branch` and `Branch` ≠ `Base`; commit (or, after a conflict, refuses while files are unmerged or hold `<<<<<<<`/`>>>>>>>`, then `rebase --continue`) → fetch → refuses if the remote branch moved to a commit this script didn't push → pull --rebase → push `HEAD:refs/heads/<Branch>` with `--force-with-lease=<ref>:<last pushed commit>` → `glab ci status` every 30 s (≤ 45 min) → `docker compose -p <project> -f <files> down --remove-orphans` → `git worktree remove` → pull the base in the main checkout. Finished steps are recorded under `## Finish`, so a re-run resumes. | 0 · 10 conflict · 20 pipeline failed · 30 push rejected · 1 other · 2 setup |
 
 Each script counts failed runs in `Tries:`; the third failed run of the same step (or the same finish code) writes `BLOCKED`. Exit 30 blocks at once.
 
 Outside the workflow you can still run:
 ```bash
-python scripts/check_python_conventions.py <files or dirs>
+python3 "$HOME/.claude/midnight-workflow/scripts/check_python_conventions.py" app/
 ```
 ```bash
-python scripts/mypy_strict.py <paths>
+python3 "$HOME/.claude/midnight-workflow/scripts/mypy_strict.py" app/
 ```
 
-## Not verified on this machine
+## Not verified offline
 
-These need checking in the offline work environment; each has an isolated spot to adjust.
+These need checking in the work environment; each has an isolated spot to adjust.
 
 | Point | Where to adjust |
 |---|---|
-| `claude -p "/beatrice-code-review <base>"` runs a custom slash command. If it doesn't, set `Beatrice mode: file` in `state.md`: the script then sends the command file's text (frontmatter removed, `$ARGUMENTS` = base) as the prompt. | `run_beatrice.py` `build_prompt` |
-| `--allowedTools "Read,Grep,Glob,Agent,Bash(git diff:*),…"` syntax (one comma-separated argument), and which Bash commands Beatrice really runs. Override per feature with `Beatrice tools:` in `state.md`. | `run_beatrice.py` `DEFAULT_ALLOWED_TOOLS` |
-| Beatrice's output format. Findings are read tolerantly (bullets, numbered items, table rows; `file:line`, `PY-12`-style IDs or `rule: x`); the raw outputs are always kept next to the merged file. | `run_beatrice.py` `parse_findings` |
-| `glab ci status --branch <b>` flags and output (`Pipeline state:`, `SHA:`, `(failed) … <job>` lines), and `glab ci trace <job> --branch <b>`. | `finish_branch.py` `parse_pipeline_state`, `failing_job_log` |
-| `${CLAUDE_PLUGIN_ROOT}` is expanded inside `commands/feature.md` (it is in hooks.json). If it isn't, the Stop hook's messages still give the absolute script paths. | `commands/feature.md` |
+| `claude -p "/beatrice-code-review <base>"` runs a custom slash command. If not, the script retries with the command file's text by itself; set `Beatrice mode: file` to start that way. | `run_beatrice.py` `build_prompt`, `run_review` |
+| `--allowedTools` / `--disallowedTools` syntax (one comma-separated argument each), `--append-system-prompt`, the `--output-format json` fields (`is_error`, `result`, `permission_denials`), and which Bash commands Beatrice really runs. Override the allowed list per feature with `Beatrice tools:`. | `run_beatrice.py` `DEFAULT_ALLOWED_TOOLS`, `read_review_result` |
+| Beatrice's output format. The findings block is asked for; without it the free-form parser reads bullets, numbered items, tables (by header) and numbered/located headings, and the raw outputs are always kept. | `run_beatrice.py` `parse_free_form` |
+| `glab ci status --branch <b>` flags and output (`Pipeline state:`, `SHA:`, tab-separated `(failed)` job lines), and `glab ci trace <job> --branch <b>`. `glab ci get -b <b> -F json` may be the sturdier source. | `finish_branch.py` `parse_pipeline_state`, `failed_job_name` |
+| `$HOME` is expanded in the hook commands (they run through a shell). | `settings/hooks.json` |
 | `.claude/rules/*.md` with a `paths:` glob, as an alternative to folder CLAUDE.md files. | `claude-md/README.md` |
-| The midnight-api paths in `claude-md/`, the `## Commands` lines (e.g. `npx nx affected -t lint --base=origin/<base>`), and the Beatrice command file path. | each feature's `state.md` |
+| The midnight-api paths in `claude-md/`, the `## Commands` lines, `Compose files`, and the Beatrice command path. | each feature's `state.md` |
 | Add `-v` to `docker compose down` only if the branch's volumes hold nothing you need. | `finish_branch.py` `stop_containers` |
 
-## Developing the plugin
+## Developing
 
 ```bash
-uv run --with pytest pytest tests
+uv run --with pytest pytest tests -q
 ```
-```bash
-claude plugin validate .
-```
+
+The tests mock `glab`, `docker` and `claude` at `command_runner.run_command`; git runs for real (temporary repositories, a bare remote and a worktree for the finish tests). The install tests and the process-group tests run only on Linux.

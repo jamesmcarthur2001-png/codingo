@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Checks Python files against the house conventions that ruff and mypy cannot express.
 
@@ -55,7 +56,9 @@ BOOLEAN_CALL_NAMES = frozenset(
         "is_dir",
     },
 )
-CONDITION_PARENT_TYPES = (ast.If, ast.While, ast.IfExp, ast.Assert, ast.BoolOp, ast.comprehension)
+TEST_FIELD_PARENT_TYPES = (ast.If, ast.While, ast.IfExp, ast.Assert)
+SHEBANG_PREFIX = "#!"
+OVERRIDE_DECORATOR_NAMES = frozenset({"override"})
 BUILTIN_EXCEPTION_NAMES = frozenset(
     name
     for name, value in vars(builtins).items()
@@ -75,6 +78,11 @@ class Violation:
     line: int
     rule_id: str
     message: str
+    end_line: int = 0
+
+    @property
+    def last_line(self) -> int:
+        return max(self.line, self.end_line)
 
     def format_for_output(self) -> str:
         return f"{self.path}:{self.line}: {self.rule_id} {self.message}"
@@ -111,6 +119,12 @@ def iter_own_body_nodes(function_node: ast.FunctionDef | ast.AsyncFunctionDef) -
             continue
         pending_nodes.extend(ast.iter_child_nodes(node))
     return own_nodes
+
+
+def last_line_of(node: ast.expr | ast.stmt) -> int:
+    if node.end_lineno is None:
+        return node.lineno
+    return node.end_lineno
 
 
 def is_none_constant(node: ast.AST | None) -> bool:
@@ -288,14 +302,20 @@ def check_none_returns(path: Path, tree: ast.Module) -> list[Violation]:
     return violations
 
 
-def check_module_header(path: Path, tree: ast.Module) -> list[Violation]:
+def expected_docstring_line(lines: list[str]) -> int:
+    if len(lines) > 0 and lines[0].startswith(SHEBANG_PREFIX):
+        return 2
+    return 1
+
+
+def check_module_header(path: Path, tree: ast.Module, lines: list[str]) -> list[Violation]:
     docstring_node = get_docstring_node(tree)
-    if docstring_node is None or docstring_node.lineno != 1:
+    if docstring_node is None or docstring_node.lineno != expected_docstring_line(lines):
         violation = Violation(
             path,
             1,
             "PY-07",
-            "File must start with the page docstring (description, :author:, :date:).",
+            "File must start with the page docstring (description, :author:, :date:), after an optional shebang line.",
         )
         return [violation]
     violations: list[Violation] = []
@@ -341,6 +361,7 @@ def check_docstring_layout(
             docstring_node.lineno,
             "PY-14",
             'Docstring opening and closing """ must each be on their own line.',
+            end_line,
         )
         violations.append(violation)
     docstring_lines = str(docstring_node.value).splitlines()
@@ -358,6 +379,7 @@ def check_docstring_layout(
             docstring_node.lineno,
             "PY-15",
             "No blank lines allowed between :param / :return / :raises fields.",
+            end_line,
         )
         violations.append(violation)
     return violations
@@ -387,9 +409,9 @@ def check_docstrings(path: Path, tree: ast.Module, lines: list[str]) -> list[Vio
     return violations
 
 
-def find_docstring_end_line(tree: ast.Module) -> int | None:
+def find_docstring_end_line(tree: ast.Module, lines: list[str]) -> int | None:
     docstring_node = get_docstring_node(tree)
-    if docstring_node is None or docstring_node.lineno != 1:
+    if docstring_node is None or docstring_node.lineno != expected_docstring_line(lines):
         return None
     return docstring_node.end_lineno
 
@@ -449,7 +471,7 @@ def check_banner_spacing(
 
 def check_banners(path: Path, tree: ast.Module, lines: list[str]) -> list[Violation]:
     violations: list[Violation] = []
-    docstring_end_line = find_docstring_end_line(tree)
+    docstring_end_line = find_docstring_end_line(tree, lines)
     for index, line in enumerate(lines):
         if BANNER_LIKE_PATTERN.match(line) is None:
             continue
@@ -632,36 +654,123 @@ def check_multiline_calls(
             "PY-24",
             f"'{get_called_name(node) or 'call'}(...)' has 3+ arguments or 50+ characters of arguments: "
             "put each argument on its own line and add a trailing comma.",
+            last_line_of(node),
         )
         violations.append(violation)
     return violations
 
 
-def check_get_prefix(path: Path, tree: ast.Module) -> list[Violation]:
+def function_names(tree: ast.Module) -> frozenset[str]:
+    return frozenset(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, FUNCTION_NODE_TYPES)
+    )
+
+
+def parse_base_function_names(base_source: str | None) -> frozenset[str]:
+    """
+    List the functions the file already had in the base version.
+
+    :param base_source: The file's text in the base commit, or None for a new file.
+    :return: The function and method names there; empty for a new or unparsable file.
+    """
+    if base_source is None:
+        return frozenset()
+    try:
+        return function_names(ast.parse(base_source))
+    except SyntaxError:
+        return frozenset()
+
+
+def is_framework_override(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    parents: dict[ast.AST, ast.AST],
+    local_class_names: frozenset[str],
+) -> bool:
+    """
+    Tells whether a method overrides a name its framework chose (e.g. `get_queryset`).
+
+    :param node: The method.
+    :param parents: Child-to-parent node map of the module.
+    :param local_class_names: Classes defined in this module.
+    :return: True for `@override` methods and methods of classes with a base from another module.
+    """
+    if any(get_called_name(decorator) in OVERRIDE_DECORATOR_NAMES for decorator in node.decorator_list):
+        return True
+    owner = parents.get(node)
+    if not isinstance(owner, ast.ClassDef):
+        return False
+    return any(
+        get_called_name(base) not in local_class_names
+        for base in owner.bases
+    )
+
+
+def check_get_prefix(
+    path: Path,
+    tree: ast.Module,
+    parents: dict[ast.AST, ast.AST],
+    base_function_names: frozenset[str],
+) -> list[Violation]:
     violations: list[Violation] = []
+    local_class_names = frozenset(
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+    )
     for node in ast.walk(tree):
         if not isinstance(node, FUNCTION_NODE_TYPES) or not node.name.startswith(GET_PREFIX):
+            continue
+        if node.name in base_function_names:
+            continue
+        if is_framework_override(
+            node,
+            parents,
+            local_class_names,
+        ):
             continue
         violation = Violation(
             path,
             node.lineno,
             "PY-62",
-            f"New functions never start with 'get_': name it '{node.name.removeprefix(GET_PREFIX)}'. "
-            "Keep the name only if the function already existed with it.",
+            f"New functions never start with 'get_': name it '{node.name.removeprefix(GET_PREFIX)}'.",
         )
         violations.append(violation)
     return violations
 
 
-def is_boolean_operand(node: ast.expr) -> bool:
+def bool_annotated_names(tree: ast.Module) -> frozenset[str]:
+    """
+    Collect the names the file annotates as `bool` (parameters and annotated assignments).
+
+    :param tree: The parsed module.
+    :return: Those names, which count as booleans in an `or`.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        is_bool_argument = isinstance(node, ast.arg) and node.annotation is not None and get_called_name(node.annotation) == "bool"
+        if is_bool_argument:
+            names.add(node.arg)
+        if isinstance(node, ast.AnnAssign) and get_called_name(node.annotation) == "bool":
+            target_name = get_called_name(node.target)
+            if target_name is not None:
+                names.add(target_name)
+    return frozenset(names)
+
+
+def is_boolean_operand(node: ast.expr, boolean_names: frozenset[str]) -> bool:
     """
     Tells whether an `or` operand is clearly a boolean, so the `or` is a condition and not a default.
 
     :param node: One operand of the `or`.
-    :return: True for comparisons, `not`, bool constants, predicate calls and `is_`/`has_` names.
+    :param boolean_names: Names annotated as `bool` in the file.
+    :return: True for comparisons, `not`, bool constants, predicate calls, `is_`/`has_` names and bool-annotated names.
     """
-    if isinstance(node, (ast.Compare, ast.BoolOp)):
+    if isinstance(node, ast.Compare):
         return True
+    if isinstance(node, ast.BoolOp):
+        return all(is_boolean_operand(value, boolean_names) for value in node.values)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
         return True
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
@@ -669,16 +778,31 @@ def is_boolean_operand(node: ast.expr) -> bool:
     operand_name = get_called_name(node)
     if operand_name is None:
         return False
-    if isinstance(node, ast.Call) and operand_name in BOOLEAN_CALL_NAMES:
-        return True
-    return operand_name.startswith(BOOLEAN_NAME_PREFIXES)
+    if isinstance(node, ast.Call):
+        return operand_name in BOOLEAN_CALL_NAMES or operand_name.startswith(BOOLEAN_NAME_PREFIXES)
+    return operand_name.startswith(BOOLEAN_NAME_PREFIXES) or operand_name in boolean_names
 
 
 def is_condition_position(node: ast.BoolOp, parents: dict[ast.AST, ast.AST]) -> bool:
+    """
+    Tells whether an `or` is tested for truth (an `if`, `while`, `assert`, ternary test, comprehension filter, or `not`).
+
+    :param node: The `or` expression.
+    :param parents: Child-to-parent node map of the module.
+    :return: True when its value is only used as a condition.
+    """
+    child: ast.AST = node
     parent = parents.get(node)
-    if isinstance(parent, CONDITION_PARENT_TYPES):
+    while isinstance(parent, ast.BoolOp):
+        child = parent
+        parent = parents.get(parent)
+    if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not):
         return True
-    return isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not)
+    if isinstance(parent, TEST_FIELD_PARENT_TYPES):
+        return parent.test is child
+    if isinstance(parent, ast.comprehension):
+        return child in parent.ifs
+    return False
 
 
 def check_or_defaults(
@@ -687,12 +811,13 @@ def check_or_defaults(
     parents: dict[ast.AST, ast.AST],
 ) -> list[Violation]:
     violations: list[Violation] = []
+    boolean_names = bool_annotated_names(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.BoolOp) or not isinstance(node.op, ast.Or):
             continue
         if is_condition_position(node, parents):
             continue
-        if any(is_boolean_operand(operand) for operand in node.values):
+        if all(is_boolean_operand(operand, boolean_names) for operand in node.values):
             continue
         violation = Violation(
             path,
@@ -700,16 +825,18 @@ def check_or_defaults(
             "PY-56",
             "Never pick a value with 'or' (it swallows 0, '' and []): write "
             "'value if value is not None else default' or 'if value is None: value = default'.",
+            last_line_of(node),
         )
         violations.append(violation)
     return violations
 
 
-def check_python_file(path: Path) -> list[Violation]:
+def check_python_file(path: Path, base_source: str | None = None) -> list[Violation]:
     """
     Runs every convention check on one Python file.
 
     :param path: The file to check.
+    :param base_source: The file's text in the base commit, so names that already existed aren't reported as new.
     :return: All violations found, sorted by line.
     """
     raw_source = path.read_bytes()
@@ -738,7 +865,12 @@ def check_python_file(path: Path) -> list[Violation]:
     )
     violations += check_dunder_all(path, tree)
     violations += check_exceptions(path, tree)
-    violations += check_get_prefix(path, tree)
+    violations += check_get_prefix(
+        path,
+        tree,
+        parents,
+        parse_base_function_names(base_source),
+    )
     violations += check_or_defaults(
         path,
         tree,
@@ -750,7 +882,11 @@ def check_python_file(path: Path) -> list[Violation]:
             tree,
             parents,
         )
-        violations += check_module_header(path, tree)
+        violations += check_module_header(
+            path,
+            tree,
+            lines,
+        )
         violations += check_banners(
             path,
             tree,

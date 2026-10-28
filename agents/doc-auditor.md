@@ -1,6 +1,6 @@
 ---
 name: doc-auditor
-description: "Checks one batch of a library's documentation against its code, claim by claim, for /midnight-workflow:map-library. Flags wrong, outdated, misleading, and unverifiable claims with evidence and corrected text. Read-only except for its own batch file."
+description: "Checks one batch of a library's documentation against its code, claim by claim, for /map-library. Flags wrong, outdated, misleading, and unverifiable claims with evidence and corrected text. Read-only except for its own batch file."
 tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 ---

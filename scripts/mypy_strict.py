@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Runs mypy --strict and drops only the missing-return-annotation errors of functions that return nothing.
 
@@ -57,11 +58,12 @@ def find_none_returning_function_lines(path: Path) -> set[int]:
     return function_lines
 
 
-def filter_mypy_output(output_lines: list[str]) -> list[str]:
+def filter_mypy_output(output_lines: list[str], base_directory: Path | None = None) -> list[str]:
     """
     Removes missing-return-annotation errors (and their notes) on functions that return nothing.
 
     :param output_lines: Raw mypy output lines.
+    :param base_directory: The directory mypy ran in, to resolve its relative paths; the current directory when None.
     :return: The output lines that still matter.
     """
     function_lines_by_path: dict[str, set[int]] = {}
@@ -79,7 +81,10 @@ def filter_mypy_output(output_lines: list[str]) -> list[str]:
             kept_lines.append(output_line)
             continue
         if location[0] not in function_lines_by_path:
-            function_lines_by_path[location[0]] = find_none_returning_function_lines(Path(location[0]))
+            reported_path = Path(location[0])
+            if base_directory is not None and not reported_path.is_absolute():
+                reported_path = base_directory / reported_path
+            function_lines_by_path[location[0]] = find_none_returning_function_lines(reported_path)
         if int(location[1]) in function_lines_by_path[location[0]]:
             suppressed_locations.add(location)
             continue

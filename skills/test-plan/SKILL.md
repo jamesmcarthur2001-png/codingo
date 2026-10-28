@@ -5,7 +5,7 @@ description: Use in the feature workflow after implementation and before writing
 
 # Test Plan
 
-Write `docs/features/<slug>/test-plan.md` from `templates/test-plan.md`. **No test code is written before this file exists.**
+Write `docs/features/<ticket>/test-plan.md` from `templates/test-plan.md`. **No test code is written before this file exists.**
 - A hook blocks writing any test whose name isn't in `test-plan.md`.
 - Gate A treats every file in the File column as allowed scope, so list every test file you'll create or change.
 
@@ -14,7 +14,7 @@ Write `docs/features/<slug>/test-plan.md` from `templates/test-plan.md`. **No te
 
 | Test name | What it checks | Expected result | File |
 |---|---|---|---|
-| `test_entity_by_id_missing_id_raises_entity_not_found_error` | Reading an entity id that doesn't exist | Raises `EntityNotFoundError` with "Entity 7 was not found." | `tests/entities/test_read_entity.py` |
+| `test_entity_by_id_missing_id_raises_entity_not_found_error` | Reading an entity id that doesn't exist | Raises `EntityNotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
 
 ## Inputs
 - `spec.md`, `plan.md`, `state.md`.
@@ -27,7 +27,7 @@ Write `docs/features/<slug>/test-plan.md` from `templates/test-plan.md`. **No te
    - pytest: the function name, `test_<unit>_<condition>_<expected>`.
    - Vitest: the exact `it(...)` string, e.g. `shows an error message when loading entities fails`.
    - Playwright: the exact `test(...)` string, e.g. `user creates an entity and sees it in the list`.
-3. **File holds the exact path** the test will live in, following `pytest-conventions` / `vitest-conventions` / `browser-test-conventions` and the service's `tests/CLAUDE.md`.
+3. **File holds the exact path relative to the repo root** (e.g. `services/evermore/tests/...`, `frontend/tests/...`, never service-relative) the test will live in, following `pytest-conventions` / `vitest-conventions` / `browser-test-conventions` and the service's `tests/CLAUDE.md`.
 4. **Expected result is observable:** a return value, status code plus body, raised exception plus message, DB state, emitted event, rendered text, URL. "Works correctly" isn't a result.
 5. **What to plan:**
    - Every requirement and edge case in `spec.md` has at least one row.

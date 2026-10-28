@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-PreToolUse hook: blocks adding tests that are not listed in the active feature's test-plan.md.
+PreToolUse hook: blocks adding tests that are not listed in the running feature's test-plan.md (exact names, first column).
 
 :author: midnight-workflow
 :date: 16/10/2026
@@ -13,12 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from feature_state import is_reviewer_session
+from feature_state import find_running_feature, is_reviewer_session
 
 # ----- Consts ----- #
 
 BLOCKING_EXIT_CODE = 2
-ACTIVE_FEATURE_MARKER = Path("docs") / "features" / ".active"
 TEST_PLAN_FILE_NAME = "test-plan.md"
 PYTHON_TEST_PATTERN = re.compile(
     r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(",
@@ -28,7 +28,10 @@ FRONTEND_TEST_PATTERN = re.compile(
     r"""^\s*(?:it|test)(?:\.(?:only|skip|todo|fixme|fail|fails|slow|concurrent))?\s*\(\s*(['"`])(.+?)\1""",
     re.MULTILINE,
 )
-FRONTEND_TEST_SUFFIXES = (".spec.ts", ".test.ts", ".spec.js", ".test.js")
+FRONTEND_TEST_SUFFIXES = (".spec.ts", ".test.ts", ".spec.tsx", ".test.tsx", ".spec.js", ".test.js", ".spec.mts", ".test.mts")
+TABLE_SEPARATOR_PATTERN = re.compile(r"^\|?\s*:?-{3,}")
+HEADER_FIRST_CELL = "test name"
+NAME_QUOTE_CHARACTERS = "`'\" "
 EDIT_TOOL_NAMES = ("Edit", "MultiEdit")
 
 # ----- Functions ----- #
@@ -95,19 +98,24 @@ def find_added_test_names(path: Path, source_changes: list[tuple[str, str]]) -> 
     return added_test_names
 
 
-def find_active_test_plan(start_directory: Path) -> tuple[str, Path] | None:
+def planned_test_names(test_plan_text: str) -> set[str]:
     """
-    Finds the test plan of the feature currently running through the workflow.
+    Read the test names of the four-column test plan.
 
-    :param start_directory: The directory Claude Code is working in.
-    :return: The active feature slug and its test-plan path, when a feature is active.
+    :param test_plan_text: The test plan's text.
+    :return: The exact names in the first column of every table row.
     """
-    for directory in (start_directory, *start_directory.parents):
-        marker = directory / ACTIVE_FEATURE_MARKER
-        if marker.is_file():
-            feature_slug = marker.read_text(encoding="utf-8").strip()
-            return feature_slug, marker.parent / feature_slug / TEST_PLAN_FILE_NAME
-    return None
+    names: set[str] = set()
+    for test_plan_line in test_plan_text.splitlines():
+        stripped_line = test_plan_line.strip()
+        if not stripped_line.startswith("|") or TABLE_SEPARATOR_PATTERN.match(stripped_line) is not None:
+            continue
+
+        first_cell = stripped_line.strip("|").split("|")[0].strip(NAME_QUOTE_CHARACTERS)
+        if first_cell != "" and first_cell.lower() != HEADER_FIRST_CELL:
+            names.add(first_cell)
+
+    return names
 
 
 def block(message: str) -> int:
@@ -130,17 +138,21 @@ def main() -> int:
     added_test_names = find_added_test_names(path, source_changes)
     if len(added_test_names) == 0:
         return 0
-    active_test_plan = find_active_test_plan(Path(str(payload.get("cwd", "."))).resolve())
-    if active_test_plan is None:
+    state = find_running_feature(Path(str(payload.get("cwd", "."))))
+    if state is None:
         return 0
-    feature_slug, test_plan_path = active_test_plan
+    test_plan_path = state.feature_directory / TEST_PLAN_FILE_NAME
     if not test_plan_path.is_file():
         return block(
-            f"Blocked: feature '{feature_slug}' has no {test_plan_path}. "
+            f"Blocked: feature '{state.field('Ticket')}' has no {test_plan_path}. "
             "Write the test plan (test name, what it checks, expected result, file) before writing tests.",
         )
-    test_plan = test_plan_path.read_text(encoding="utf-8")
-    unplanned_names = [test_name for test_name in added_test_names if test_name not in test_plan]
+    planned_names = planned_test_names(test_plan_path.read_text(encoding="utf-8"))
+    unplanned_names = [
+        test_name
+        for test_name in added_test_names
+        if test_name not in planned_names
+    ]
     if len(unplanned_names) == 0:
         return 0
     return block(

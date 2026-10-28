@@ -263,7 +263,7 @@ The same applies to self-closing components: each attribute on its own line, and
 - **No `void` before calls**: call the function as it is (`loadPage()`), or `await` it when the order matters. Never write `void loadPage()`.
 - **Prefer `ref` over `let`**: component state in `<script setup>` is a `ref` (`const selectedSiteId = ref<number | null>(null)`), not a reassigned `let`. A `let` isn't reactive, so the template and watchers never see its changes.
 - **Extract Constants**: Never leave magic numbers scattered in template or script bodies; extract them into named constants in `<script lang="ts">`.
-- **Strings**: strings of **4+ words** (messages, long URL paths, multi-line text) become named constants. Strings of **3 words or fewer** (labels, keys, `'Save asset'`) stay inline where they're used: moving them into constants only hides them and makes quick text changes slower. A constant that holds a string of 3 words or fewer is a violation.
+- **Strings**: strings of **4+ words** (messages, long URL paths, multi-line text) become named constants. Strings of **3 words or fewer** (labels, keys, `'Save asset'`) stay inline where they're used: moving them into constants only hides them and makes quick text changes slower. A constant that holds a string of 3 words or fewer is a violation. The frontend threshold (4+ words) is deliberately lower than Python's (5+ words, see `python-conventions` §9).
 - **Mappings over long if chains**: behavior that depends on a type or key is a lookup in an object or `Record` (type → value, handler, or component), not one `if` per type. Adding a type then means adding one entry.
 - **Configuration in `.env`**: API base URLs, links to other systems, ports, keys, and every other environment-specific value live in the app's `.env` files (`VITE_*`) and are read through `import.meta.env` in one config module. Never hardcode them.
 - **Exports at the bottom**: in `.ts` files, never export at the declaration (`export const`, `export function`, `export interface`, `export type`, `export enum`, `export class`). Declare everything first, then end the file with one export section (`.vue` files export nothing, see §1):
@@ -276,6 +276,7 @@ The same applies to self-closing components: each attribute on its own line, and
   ```
   The only exception is `export default`, where a tool requires it (e.g. `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`); keep it as the file's last statement.
 - **Indicative Variable Naming**: Use clear, descriptive variable and function names (e.g., `isUserDeletionPending`, `loadUserProfileDetails`), never generic names like `data`, `item`, or `load`.
+- **No suppressions**: never `eslint-disable` (any form), `/* eslint rule: off */`, `@ts-ignore`, `@ts-expect-error` or `@ts-nocheck`, and no new `off` rules in the eslint config. Fix the code instead. The workflow's checks fail on any new one.
 - **No comments**: no `//`, `/* */`, `<!-- -->`, and no JSDoc blocks, in script, template, or style. Clean, typed, well-named code is self-documenting.
 - **No Trailing `return`**: Functions that return nothing must not end with a bare `return`. Use `return` only for an early exit. Never write `return undefined` or `return null` to mean "nothing".
 

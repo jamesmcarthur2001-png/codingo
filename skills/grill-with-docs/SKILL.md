@@ -9,14 +9,14 @@ Interview the user until you both understand the feature the same way, **before*
 
 ## Inputs
 - The feature description.
-- `docs/features/<slug>/context.md` (files involved) and `patterns.md` (how similar things are done today), merged from the explorers. Read both first. Each item is marked with how many explorers found it: `3/3`, `2/3`, or `1/3`. **Check every `1/3` item in the code before relying on it**, in a question or a recommendation.
+- `docs/features/<ticket>/context.md` (files involved) and `patterns.md` (how similar things are done today), merged from the explorers. Read both first. Each item is marked with how many explorers found it: `3/3`, `2/3`, or `1/3`. **Check every `1/3` item in the code before relying on it**, in a question or a recommendation.
 - `docs/CONTEXT.md` (domain glossary) and `docs/adr/` (decision log) if they exist.
 
 ## Ground rules
 1. **Never ask what the code can answer.** If the answer is in `context.md`, `patterns.md`, or the code, look it up instead. Ask only about intent, behavior, and trade-offs.
 2. **Walk the decision tree.** Settle the decisions that others depend on first (e.g. "sync or background job?" before "how does the page show progress?").
 3. **Batches of up to 4 related questions** per round, with `AskUserQuestion`. Questions that depend on each other never go in the same batch: the later one waits for the next round.
-4. **Quote first.** Every question opens with the requirement it's about, in the user's words:
+4. **Quote first.** Every question opens by quoting the user's words for the requirement verbatim, then asks:
    > **About R-2** ("if the export takes long, don't block the page"): should the page poll for the result, or should you get a snackbar when it's ready?
 
    When there's no R-n, quote the code fact instead: "`patterns.md` P-3: entities export uses a Temporal workflow".
@@ -25,7 +25,7 @@ Interview the user until you both understand the feature the same way, **before*
 7. **Challenge the language.** If the user uses a term that conflicts with `docs/CONTEXT.md` or the code (e.g. "item" when the code says "entity"), ask which one is meant, and record the answer in the glossary.
 
 ## grill-notes.md
-Keep `docs/features/<slug>/grill-notes.md` up to date after every round:
+Keep `docs/features/<ticket>/grill-notes.md` up to date after every round:
 ```markdown
 ## Requirements (the user's words, verbatim)
 - R-1 "<exactly what the user wrote>"
@@ -68,5 +68,5 @@ When no unknown is left, write a **readback** of 5–8 bullets: what will be bui
 - Everything else stays in `grill-notes.md`.
 
 ## Output
-- `docs/features/<slug>/grill-notes.md` with the requirements verbatim, every unknown decided, and the coverage line showing nothing left.
+- `docs/features/<ticket>/grill-notes.md` with the requirements verbatim, every unknown decided, and the coverage line showing nothing left.
 - Any updates to `docs/CONTEXT.md` and `docs/adr/`.

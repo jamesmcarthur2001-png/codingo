@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Reads and updates a feature's state.md, the file every workflow step writes where it is.
 
@@ -33,6 +34,8 @@ BLOCKED_STATUS = "BLOCKED"
 RUNNING_STATUS = "RUNNING"
 MAX_FAILED_RUNS = 3
 RUNNING_MARKER_MAX_AGE_SECONDS = 75 * 60
+APPROVED_PREFIX = "yes"
+CHECKS_VARIABLE = "MIDNIGHT_CHECKS"
 LOG_TIME_FORMAT = "%d/%m/%Y %H:%M"
 
 # ----- Classes ----- #
@@ -41,6 +44,13 @@ LOG_TIME_FORMAT = "%d/%m/%Y %H:%M"
 class FeatureNotFoundError(Exception):
     """
     Raised when a ticket has no feature directory or no state.md.
+    """
+    pass
+
+
+class StepAlreadyRunningError(Exception):
+    """
+    Raised when a long step starts while another one of the same feature is still running.
     """
     pass
 
@@ -67,7 +77,10 @@ class FeatureState:
         return self.path.parent
 
     def save(self):
-        self.path.write_text("\n".join(self.lines) + "\n", encoding="utf-8")
+        write_atomically(self.path, "\n".join(self.lines) + "\n")
+
+    def reload(self):
+        self.lines = FeatureState.load(self.path).lines
 
     def first_section_index(self) -> int:
         for index, line in enumerate(self.lines):
@@ -173,6 +186,12 @@ class FeatureState:
         status = self.status()
         return status.startswith(DONE_STATUS) or status.startswith(BLOCKED_STATUS)
 
+    def is_approved(self) -> bool:
+        return self.field("Approved").lower().startswith(APPROVED_PREFIX)
+
+    def is_running_after_approval(self) -> bool:
+        return self.is_approved() and not self.is_finished()
+
     def block(self, reason: str):
         self.set_field("Status", f"{BLOCKED_STATUS}: {reason}")
         self.log(f"BLOCKED: {reason}")
@@ -204,22 +223,63 @@ class FeatureState:
     def reset_tries(self):
         self.set_field("Tries", "0")
 
+    @property
+    def repository_root(self) -> Path:
+        return self.feature_directory.parent.parent.parent
+
     def code_root(self) -> Path:
         """
         Find the directory the feature's code lives in.
 
-        :return: The `Worktree:` path when set, else the repository holding docs/features.
+        :return: The `Worktree:` path (relative paths resolved against the repository) when set, else the repository holding docs/features.
         """
         worktree = self.field("Worktree")
-        if worktree != "":
-            return Path(worktree)
-        return self.feature_directory.parent.parent.parent
+        if worktree == "":
+            return self.repository_root
+        worktree_path = Path(worktree).expanduser()
+        if worktree_path.is_absolute():
+            return worktree_path
+        return self.repository_root / worktree_path
 
 # ----- Functions ----- #
 
 
 def is_reviewer_session() -> bool:
     return os.environ.get(ROLE_VARIABLE, "") == REVIEWER_ROLE
+
+
+def checks_forced() -> bool:
+    return os.environ.get(CHECKS_VARIABLE, "") == "1"
+
+
+def write_atomically(path: Path, text: str):
+    """
+    Write a file so readers see either the old or the new content, never half of it.
+
+    :param path: The file to write.
+    :param text: The new content.
+    """
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary_path.write_text(text, encoding="utf-8")
+    os.replace(temporary_path, path)
+
+
+def read_json_file(path: Path) -> dict[str, object] | None:
+    """
+    Read a small JSON state file written by the hooks or scripts.
+
+    :param path: The file.
+    :return: Its object, or None when it is missing, unreadable or not a JSON object.
+    """
+    if not path.is_file():
+        return None
+    try:
+        content = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(content, dict):
+        return None
+    return content
 
 
 def search_starts(start: Path) -> list[Path]:
@@ -266,6 +326,22 @@ def find_active_feature(start: Path) -> Path | None:
     return features_directory / ticket
 
 
+def find_running_feature(start: Path) -> FeatureState | None:
+    """
+    Find the active feature when it is approved and not DONE or BLOCKED; the guards act only then.
+
+    :param start: The directory to search from.
+    :return: Its state, or None when no approved feature is running.
+    """
+    feature_directory = find_active_feature(start)
+    if feature_directory is None or not (feature_directory / STATE_FILE_NAME).is_file():
+        return None
+    state = FeatureState.load(feature_directory / STATE_FILE_NAME)
+    if not state.is_running_after_approval():
+        return None
+    return state
+
+
 def load_feature_state(ticket: str, start: Path) -> FeatureState:
     """
     Load the state.md of a ticket.
@@ -283,23 +359,36 @@ def load_feature_state(ticket: str, start: Path) -> FeatureState:
     return FeatureState.load(features_directory / ticket / STATE_FILE_NAME)
 
 
+def write_running_marker(feature_directory: Path, step: str):
+    write_atomically(
+        feature_directory / RUNNING_MARKER_NAME,
+        json.dumps({"step": step, "started": time.time()}),
+    )
+
+
 @contextmanager
 def running_marker(feature_directory: Path, step: str) -> Iterator[None]:
     """
-    Mark a long step as running, so the Stop hook lets the orchestrator wait for it.
+    Mark a long step as running, so the Stop hook lets the orchestrator wait and a second run refuses to start.
 
     :param feature_directory: The feature's directory.
     :param step: What is running, e.g. `beatrice round 2`.
+    :raises StepAlreadyRunningError: When another long step of this feature is still running.
     """
-    marker = feature_directory / RUNNING_MARKER_NAME
-    marker.write_text(
-        json.dumps({"step": step, "started": time.time()}),
-        encoding="utf-8",
-    )
+    already_running = running_step(feature_directory)
+    if already_running is not None:
+        raise StepAlreadyRunningError(
+            f"'{already_running}' is still running for this feature. Wait for it to finish.",
+        )
+    write_running_marker(feature_directory, step)
     try:
         yield
     finally:
-        marker.unlink(missing_ok=True)
+        (feature_directory / RUNNING_MARKER_NAME).unlink(missing_ok=True)
+
+
+def refresh_running_marker(feature_directory: Path, step: str):
+    write_running_marker(feature_directory, step)
 
 
 def running_step(feature_directory: Path) -> str | None:
@@ -307,13 +396,10 @@ def running_step(feature_directory: Path) -> str | None:
     Tell which long step is running right now.
 
     :param feature_directory: The feature's directory.
-    :return: The running step, or None when nothing runs or the marker is older than 75 minutes.
+    :return: The running step, or None when nothing runs, the marker is corrupt, or it is older than 75 minutes.
     """
-    marker = feature_directory / RUNNING_MARKER_NAME
-    if not marker.is_file():
-        return None
-    marker_content = json.loads(marker.read_text(encoding="utf-8"))
-    if not isinstance(marker_content, dict):
+    marker_content = read_json_file(feature_directory / RUNNING_MARKER_NAME)
+    if marker_content is None:
         return None
     started = marker_content.get("started")
     if not isinstance(started, (int, float)):

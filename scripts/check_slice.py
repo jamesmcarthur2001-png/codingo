@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 """
 Checks one built slice: lint, types, suppressions and scope, on the lines the branch changed only.
 
-Usage: python check_slice.py BTRC-1234 <slice>
-Exit codes: 0 passed, 1 problems found, 2 the feature or slice can't be found.
+Usage: python3 check_slice.py BTRC-1234 <slice>
+Exit codes: 0 passed, 1 problems found, 2 setup error (no feature, no such slice, or git failed).
 
 :author: midnight-workflow
 :date: 28/10/2026
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from feature_state import FeatureNotFoundError, FeatureState, load_feature_state
-from git_changes import LineFilter, branch_line_filters, changed_existing_lines, changed_files, diff_base_commit
+from git_changes import GitError, LineFilter, branch_line_filters, changed_existing_lines, changed_files, diff_base_commit, file_at_commit
 from line_checks import PYTHON_SUFFIXES, changed_line_problems, mypy_problems
 from scope_check import allowed_for_slice, out_of_scope_files, parse_plan_slices
 
@@ -36,6 +37,7 @@ class BranchReport:
     problems: list[str] = field(default_factory=list)
     out_of_scope: list[str] = field(default_factory=list)
     existing_line_changes: list[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -82,6 +84,7 @@ def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchRepo
     ]
     line_filters = branch_line_filters(base_commit, code_root)
     report = BranchReport(
+        changed=changed,
         out_of_scope=out_of_scope_files(changed, allowed_patterns),
         existing_line_changes=changed_existing_lines(base_commit, code_root),
     )
@@ -93,7 +96,19 @@ def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchRepo
             continue
 
         absolute_filters[path.resolve()] = line_filter
-        report.problems.extend(problem.text for problem in changed_line_problems(path, line_filter))
+        base_source = file_at_commit(
+            base_commit,
+            relative_path,
+            code_root,
+        )
+        report.problems.extend(
+            problem.text
+            for problem in changed_line_problems(
+                path,
+                line_filter,
+                base_source,
+            )
+        )
 
     python_paths = [
         path
@@ -159,10 +174,14 @@ def main() -> int:
         return SETUP_ERROR_EXIT_CODE
     if state.number_field("Slices") == 0:
         state.set_field("Slices", str(max(slices)))
-    report = check_branch(
-        state,
-        allowed_for_slice(state.feature_directory, arguments.slice),
-    )
+    try:
+        report = check_branch(
+            state,
+            allowed_for_slice(state.feature_directory, arguments.slice),
+        )
+    except GitError as git_error:
+        print(f"Setup error: {git_error}")
+        return SETUP_ERROR_EXIT_CODE
     rendered_report = report.render()
     if rendered_report != "":
         print(rendered_report + "\n")

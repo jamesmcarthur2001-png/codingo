@@ -1,4 +1,6 @@
+import json
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -6,7 +8,7 @@ import pytest
 
 import check_slice
 import gate_a
-from conftest import FakeCommands, failed, git
+from conftest import FakeCommands, failed, git, ok
 from feature_state import FeatureState
 
 HEADER = '"""\nEntities.\n\n:author: midnight-workflow\n:date: 16/10/2026\n"""\n# ----- Imports ----- #\n\nimport os\n\n# ----- Functions ----- #\n\n\n'
@@ -174,7 +176,7 @@ def test_gate_a_uncovered_lines_without_exemption_fail(
 ):
     commands = fake_commands(True)
     commands.respond("diff-cover", failed(DIFF_COVER_OUTPUT))
-    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --compare-branch=origin/master --fail-under=100")
+    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --compare-branch=origin/master --include-untracked --fail-under=100")
 
     exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
 
@@ -189,7 +191,7 @@ def test_gate_a_uncovered_lines_all_exempt_pass(
 ):
     commands = fake_commands(True)
     commands.respond("diff-cover", failed(DIFF_COVER_OUTPUT))
-    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --fail-under=100")
+    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --include-untracked --fail-under=100")
     state = state_of(branch_feature)
     state.append_to_section("Coverage exemptions", "- `app/entities.py`:20-21: pass-through route, no logic")
     state.append_to_section("Coverage exemptions", "- app/entities.py:25 - defensive branch the database can't reach")
@@ -236,3 +238,188 @@ def test_gate_a_dismissed_findings_are_remembered_by_line_text(branch_feature: P
     assert same_finding.reason == "line 14 already checks None"
     assert other_line is None
     assert (review_directory / "dismissed.json").is_file()
+
+
+def write_round_record(feature_directory: Path, round_number: int, records: list[dict[str, object]]):
+    review_directory = feature_directory / "review"
+    review_directory.mkdir(exist_ok=True)
+    (review_directory / f"beatrice-{round_number}.json").write_text(json.dumps(records), encoding="utf-8")
+
+
+def test_gate_a_dismissal_uses_line_text_captured_by_beatrice_not_the_shifted_line(branch_feature: Path):
+    code_root = branch_feature.parent.parent.parent
+    (code_root / "app" / "entities.py").write_text("\n" * 14 + "new line pushed in by a fix\n" + "if not entity:\n", encoding="utf-8")
+    record = {"id": "R1-1", "file": "app/entities.py", "line": 15, "rule": "PY-23", "line_text": "if not entity:"}
+    write_round_record(branch_feature, 1, [record])
+    (branch_feature / "review" / "triage.md").write_text(TRIAGE, encoding="utf-8")
+
+    dismissed = gate_a.sync_dismissed(state_of(branch_feature))
+
+    assert [dismissal.line_text for dismissal in dismissed] == ["if not entity:"]
+    assert dismissed[0].finding_id == "R1-1"
+
+
+def test_gate_a_stored_dismissal_is_not_read_again(branch_feature: Path):
+    record = {"id": "R1-1", "file": "app/entities.py", "line": 15, "rule": "PY-23", "line_text": "if not entity:"}
+    write_round_record(branch_feature, 1, [record])
+    (branch_feature / "review" / "triage.md").write_text(TRIAGE, encoding="utf-8")
+    gate_a.sync_dismissed(state_of(branch_feature))
+    write_round_record(branch_feature, 1, [{**record, "line_text": "something else"}])
+
+    dismissed = gate_a.sync_dismissed(state_of(branch_feature))
+
+    assert [dismissal.line_text for dismissal in dismissed] == ["if not entity:"]
+
+
+def test_gate_a_coverage_command_without_include_untracked_is_a_setup_error(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    fake_commands(True)
+    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --fail-under=100")
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 2
+    assert "--include-untracked" in capsys.readouterr().out
+
+
+def test_gate_a_exemption_matches_the_full_path_only(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    commands = fake_commands(True)
+    commands.respond("diff-cover", failed("app/tax.py (50.0%): Missing lines 3\n"))
+    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --include-untracked --fail-under=100")
+    state = state_of(branch_feature)
+    state.append_to_section("Coverage exemptions", "- x.py:3: unrelated file with a common suffix")
+    state.save()
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 1
+    assert "app/tax.py: 3" in capsys.readouterr().out
+
+
+def test_gate_a_no_coverage_lines_while_code_changed_fails(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    commands = fake_commands(True)
+    commands.respond("diff-cover", ok("No lines with coverage information in this diff.\n"))
+    add_commands(branch_feature, "- coverage-backend: diff-cover coverage.xml --include-untracked --fail-under=100")
+    entities_path = branch_feature.parent.parent.parent / "app" / "entities.py"
+    entities_path.write_text(LEGACY_SOURCE + CLEAN_ADDITION, encoding="utf-8")
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 1
+    assert "saw no changed lines" in capsys.readouterr().out
+
+
+def test_gate_a_after_round_five_triage_moves_to_finish(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    fake_commands(True)
+    add_commands(branch_feature, "- lint: npx nx lint evermore")
+    state = state_of(branch_feature)
+    state.set_field("Round", "5")
+    state.save()
+    (branch_feature / "review").mkdir()
+    (branch_feature / "review" / "triage.md").write_text("## Round 5\n| R5-1 | 1/2 | app/x.py:1 | PY-1 | a | fix | |\n", encoding="utf-8")
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 0
+    assert state_of(branch_feature).field("Phase") == "FINISH"
+
+
+def test_gate_a_round_five_before_review_moves_to_gate_b(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    fake_commands(True)
+    add_commands(branch_feature, "- lint: npx nx lint evermore")
+    state = state_of(branch_feature)
+    state.set_field("Round", "5")
+    state.save()
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 0
+    assert state_of(branch_feature).field("Phase") == "GATE-B"
+
+
+def test_gate_a_while_another_step_runs_is_a_setup_error(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    fake_commands(True)
+    add_commands(branch_feature, "- lint: npx nx lint evermore")
+    marker = {"step": "finish", "started": time.time()}
+    (branch_feature / ".running.json").write_text(json.dumps(marker), encoding="utf-8")
+
+    exit_code = run_script(gate_a, monkeypatch, "BTRC-1234")
+
+    assert exit_code == 2
+
+
+def test_check_slice_unknown_base_is_a_setup_error(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    state = state_of(branch_feature)
+    state.set_field("Base", "no-such-branch")
+    state.save()
+
+    exit_code = run_script(check_slice, monkeypatch, "BTRC-1234", "1")
+
+    assert exit_code == 2
+    assert "no-such-branch" in capsys.readouterr().out
+
+
+def test_check_slice_git_warnings_are_not_changed_files(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    code_root = branch_feature.parent.parent.parent
+    git(code_root, "config", "core.autocrlf", "true")
+    (code_root / "app" / "entities.py").write_text(LEGACY_SOURCE + CLEAN_ADDITION, encoding="utf-8")
+
+    exit_code = run_script(check_slice, monkeypatch, "BTRC-1234", "1")
+
+    output = capsys.readouterr().out
+    assert exit_code == 0, output
+    assert "warning" not in output
+
+
+def test_check_slice_renamed_file_lists_the_old_path_as_out_of_scope(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    code_root = branch_feature.parent.parent.parent
+    (code_root / "app" / "legacy.py").write_text(LEGACY_SOURCE, encoding="utf-8")
+    git(code_root, "add", "-A")
+    git(code_root, "commit", "--quiet", "-m", "legacy module")
+    git(code_root, "branch", "--force", "master")
+    git(code_root, "mv", "app/legacy.py", "app/entities_old.py")
+    plan = PLAN.replace("- `app/entities.py`", "- `app/entities.py`\n- `app/entities_old.py`")
+    (branch_feature / "plan.md").write_text(plan, encoding="utf-8")
+
+    exit_code = run_script(check_slice, monkeypatch, "BTRC-1234", "1")
+
+    assert exit_code == 1
+    assert "- app/legacy.py" in capsys.readouterr().out

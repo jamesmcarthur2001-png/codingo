@@ -14,7 +14,7 @@ sys.path.insert(0, str(SCRIPTS_DIRECTORY / "hooks"))
 
 command_runner = importlib.import_module("command_runner")
 
-WORKFLOW_VARIABLES = ("MIDNIGHT_ROLE", "CLAUDE_PROJECT_DIR")
+WORKFLOW_VARIABLES = ("MIDNIGHT_ROLE", "CLAUDE_PROJECT_DIR", "MIDNIGHT_CHECKS")
 STATE_TEMPLATE = """# {ticket}: add CSV export to entities
 
 Ticket: {ticket}
@@ -23,7 +23,10 @@ Branch: {ticket}-csv-export
 Base: master
 Worktree: {worktree}
 Compose project: btrc-1234
+Compose files:
 Approved: {approved}
+Session:
+Pushed:
 Phase: {phase}
 Slice: 1
 Slices: 2
@@ -138,6 +141,19 @@ def make_feature_state() -> Callable[..., Path]:
     return _make
 
 
+def command_words(command: list[str]) -> list[str]:
+    """
+    Turn an argument list into the words tests match on: the program's name, and git without its `-c` options.
+    """
+    words = [Path(command[0]).stem, *command[1:]]
+    if words[0] != "git":
+        return words
+    remaining = words[1:]
+    while len(remaining) >= 2 and remaining[0] == "-c":
+        remaining = remaining[2:]
+    return ["git", *remaining]
+
+
 class FakeCommands:
     """
     Replaces command_runner.run_command: answers scripted commands and passes git through when asked.
@@ -159,7 +175,7 @@ class FakeCommands:
         timeout: int = 600,
         extra_environment: dict[str, str] | None = None,
     ) -> command_runner.CommandResult:
-        command_text = command if isinstance(command, str) else " ".join([Path(command[0]).stem, *command[1:]])
+        command_text = command if isinstance(command, str) else " ".join(command_words(command))
         self.calls.append((command_text, cwd, extra_environment))
         for command_start, results in self.responses:
             if not command_text.startswith(command_start):

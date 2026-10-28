@@ -12,12 +12,12 @@ Audit one library and produce two reports:
 1. **`doc-audit.md`**: every claim in the docs checked against the code. Each wrong, outdated, or misleading claim is flagged with the evidence and the corrected text.
 2. **`skill-map.md`**: the skills this library needs, each with its scope, its trigger description, and the source files it should be built from.
 
-This is a standalone command. It isn't part of `/midnight-workflow:feature` and doesn't touch `docs/features/`.
+This is a standalone command. It isn't part of `/feature` and doesn't touch `docs/features/`.
 
 ## Arguments
 - First positional argument: the library root (required). Stop and ask if it's missing or doesn't exist.
 - `--docs <path>`: an extra docs location outside the library root (e.g. a separate docs repo or wiki export). Can be repeated.
-- `--skills-dir <path>`: existing skills to check for overlap. Defaults to `<library>/.claude/skills/` plus this plugin's `skills/`.
+- `--skills-dir <path>`: existing skills to check for overlap. Defaults to `<library>/.claude/skills/` plus `~/.claude/skills/`.
 
 ## Rules
 - **Read-only.** Don't change the library's code or docs. The only files you write are under `<library>/docs/library-audit/`.
@@ -38,7 +38,7 @@ Write `<library>/docs/library-audit/inventory.md`. It's the shared input for bot
 5. **Batches:** split the doc sources into audit batches of roughly 1,500 doc lines each, keeping each file whole and grouping related files. Docstrings form their own batch, grouped by module. Use at most 8 batches; if there would be more, batch by importance (README, getting started, API reference first) and list the rest as "not audited" in the final report.
 
 ## Phase 2: Audit the docs (parallel)
-Run one `midnight-workflow:doc-auditor` agent per batch, **all in parallel**. Give each one:
+Run one `doc-auditor` agent per batch, **all in parallel**. Give each one:
 - the library root,
 - the path to `inventory.md`,
 - its batch number and file list,
@@ -84,7 +84,7 @@ Severity, from worst to mildest:
 - **unverifiable**: the code can't settle it. Say what you looked for.
 
 ## Phase 4: Map the skills
-Run the `midnight-workflow:skill-mapper` agent with: the library root, `inventory.md`, `doc-audit.md`, the existing skills directories (from `--skills-dir` or the defaults), and the output path `<library>/docs/library-audit/skill-map.md`. Wait for it.
+Run the `skill-mapper` agent with: the library root, `inventory.md`, `doc-audit.md`, the existing skills directories (from `--skills-dir` or the defaults), and the output path `<library>/docs/library-audit/skill-map.md`. Wait for it.
 
 ## Phase 5: Report
 Reply to the user with:

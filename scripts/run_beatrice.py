@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 """
-Gate B: runs the team leader's Beatrice review command, unchanged, in two parallel `claude -p` sessions and merges their findings.
+Gate B: runs the team leader's Beatrice review command, unchanged, in two parallel read-only `claude -p` sessions and merges their findings.
 
-Usage: python run_beatrice.py BTRC-1234 <round>
-Writes review/beatrice-<round>-a.md, -b.md (raw) and review/beatrice-<round>.md (merged, marked 2/2 or 1/2).
-Exit codes: 0 at least one run finished, 1 both runs failed twice, 2 the feature can't be found.
+Usage: python3 run_beatrice.py BTRC-1234 <round>
+Writes review/beatrice-<round>-a.md, -b.md (raw), review/beatrice-<round>.md (merged, marked 2/2 or 1/2)
+and review/beatrice-<round>.json (the same findings, with each flagged line's text as it was during the review).
+Exit codes: 0 at least one run finished, 1 both runs failed twice, 2 setup error (no feature, or another long step is running).
 
 :author: midnight-workflow
 :date: 28/10/2026
@@ -11,15 +13,16 @@ Exit codes: 0 at least one run finished, 1 both runs failed twice, 2 the feature
 # ----- Imports ----- #
 
 import argparse
+import json
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import command_runner
-from feature_state import FeatureNotFoundError, FeatureState, REVIEWER_ROLE, ROLE_VARIABLE, load_feature_state, running_marker
+from feature_state import FeatureNotFoundError, FeatureState, REVIEWER_ROLE, ROLE_VARIABLE, StepAlreadyRunningError, load_feature_state, running_marker
 from gate_a import Dismissal, find_dismissal, normalize_path, read_line_text, sync_dismissed
 
 # ----- Consts ----- #
@@ -30,23 +33,48 @@ RUN_TIMEOUT_SECONDS = 30 * 60
 RUN_ATTEMPTS = 2
 RUN_LABELS = ("a", "b")
 DEFAULT_COMMAND_NAME = "beatrice-code-review"
-DEFAULT_ALLOWED_TOOLS = "Read,Grep,Glob,Agent,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(glab mr:*),Bash(npx nx:*)"
+DEFAULT_ALLOWED_TOOLS = (
+    "Read,Grep,Glob,Agent,"
+    "Bash(git diff:*),Bash(git log:*),Bash(git show:*),"
+    "Bash(glab mr view:*),Bash(glab mr diff:*),"
+    "Bash(npx nx lint:*),Bash(npx nx typecheck:*),Bash(npx nx test:*)"
+)
+DISALLOWED_TOOLS = "Edit,Write,MultiEdit,NotebookEdit"
 SLASH_MODE = "slash"
 FILE_MODE = "file"
-FRONTMATTER_PATTERN = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
-ITEM_START_PATTERN = re.compile(
-    r"^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+|\|(?!\s*:?-{3,}))",
+UNKNOWN_COMMAND_MARKERS = ("unknown command", "unknown slash command")
+FINDINGS_BLOCK_NAME = "beatrice-findings"
+FINDINGS_BLOCK_INSTRUCTION = (
+    "When your review is complete, end your final answer with a fenced code block whose info string is "
+    f"`{FINDINGS_BLOCK_NAME}`. Put one JSON object per line in it, one per finding: "
+    '{"file": "<path relative to the repository root>", "line": <line number or 0>, "rule": "<rule id or empty>", '
+    '"finding": "<one sentence>"}. Write the block even when there are no findings (then leave it empty). '
+    "This block is in addition to your normal review output."
 )
+FINDINGS_BLOCK_PATTERN = re.compile(
+    rf"^```{FINDINGS_BLOCK_NAME}[ \t]*\n(?P<body>.*?)^```",
+    re.DOTALL | re.MULTILINE,
+)
+FENCE_PREFIX = "```"
+FILE_MODE_RETRY_NOTE = "slash command didn't run as expected; retried with the command file's text"
+FRONTMATTER_PATTERN = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+ITEM_START_PATTERN = re.compile(r"^ ?(?:[-*+]\s+|\d+[.)]\s+)")
+HEADING_PATTERN = re.compile(r"^#{1,6}\s+(?P<title>.+)$")
+NUMBERED_HEADING_PATTERN = re.compile(r"^\d+[.)]\s")
 CONTINUATION_PATTERN = re.compile(r"^\s{2,}\S")
+TABLE_SEPARATOR_PATTERN = re.compile(r"^\|?\s*:?-{3,}")
 LOCATION_PATTERN = re.compile(
-    r"`?(?P<path>[\w./\\-]+\.[A-Za-z]\w*)`?(?::| line |#L)(?P<line>\d+)",
+    r"`?(?P<path>[\w./-]+\.[A-Za-z]\w*)`?(?::| line |#L)(?P<line>\d+)",
 )
 EXPLICIT_RULE_PATTERN = re.compile(
     r"\brule\s*[:=]\s*`?(?P<rule>[\w./@-]+)`?",
     re.IGNORECASE,
 )
-RULE_ID_PATTERN = re.compile(r"\b(?!BTRC-)(?P<rule>[A-Z]{2,6}-\d+)\b")
-TABLE_HEADER_WORDS = ("file", "finding", "severity", "rule", "location")
+RULE_ID_PATTERN = re.compile(r"\b(?P<rule>(?:PY|VU|TS|VT|BR|SQL)-\d+)\b")
+NON_FINDING_HEADING_WORDS = ("summary", "overview", "scope", "pipeline", "context", "verdict")
+TABLE_FILE_HEADERS = ("file", "location", "path", "where")
+TABLE_LINE_HEADERS = ("line", "lines")
+TABLE_RULE_HEADERS = ("rule", "rule id", "convention")
 WORD_PATTERN = re.compile(r"[a-z0-9]+")
 BEATRICE_LOG_NAME = "beatrice-log.md"
 LOG_TIME_FORMAT = "%d/%m/%Y"
@@ -93,28 +121,60 @@ class MergedFinding:
     marks: str
     other_text: str = ""
 
+
+@dataclass(frozen=True)
+class RunResult:
+    """
+    The outcome of one Beatrice session (after its retry, if any).
+    """
+    succeeded: bool
+    attempts: int
+    notes: tuple[str, ...] = field(default_factory=tuple)
+
 # ----- Functions ----- #
 
 
-def build_prompt(state: FeatureState) -> str:
+def command_file_prompt(state: FeatureState) -> str | None:
+    """
+    Build the file-mode prompt: the text of Beatrice's command file, with $ARGUMENTS set to the base.
+
+    :param state: The feature's state, with `Base:` and `Beatrice command:`.
+    :return: The prompt, or None when the command file can't be read.
+    """
+    command_path = Path(state.field("Beatrice command")).expanduser()
+    if state.field("Beatrice command") == "" or not command_path.is_file():
+        return None
+    command_text = FRONTMATTER_PATTERN.sub(
+        "",
+        command_path.read_text(encoding="utf-8").replace("\r\n", "\n"),
+        count=1,
+    )
+    return command_text.replace("$ARGUMENTS", state.field("Base"))
+
+
+def build_prompt(state: FeatureState, mode: str) -> str:
     """
     Build the prompt that starts Beatrice's command, unchanged, on the feature's base branch.
 
-    :param state: The feature's state, with `Base:`, `Beatrice command:` and `Beatrice mode:`.
-    :return: `/<command> <base>` in slash mode; the command file's text with $ARGUMENTS filled in file mode.
+    :param state: The feature's state, with `Base:` and `Beatrice command:`.
+    :param mode: `slash` or `file`.
+    :return: `/<command> <base>` in slash mode; the command file's text in file mode (slash form when the file is missing).
     """
-    base = state.field("Base")
     command_path = state.field("Beatrice command")
     command_name = DEFAULT_COMMAND_NAME if command_path == "" else Path(command_path).stem
-    if state.field("Beatrice mode").lower() != FILE_MODE:
-        return f"/{command_name} {base}"
-    command_text = Path(command_path).expanduser().read_text(encoding="utf-8")
-    command_text = FRONTMATTER_PATTERN.sub(
-        "",
-        command_text.replace("\r\n", "\n"),
-        count=1,
-    )
-    return command_text.replace("$ARGUMENTS", base)
+    slash_prompt = f"/{command_name} {state.field('Base')}"
+    if mode != FILE_MODE:
+        return slash_prompt
+    file_prompt = command_file_prompt(state)
+    if file_prompt is None:
+        return slash_prompt
+    return file_prompt
+
+
+def starting_mode(state: FeatureState) -> str:
+    if state.field("Beatrice mode").lower() == FILE_MODE:
+        return FILE_MODE
+    return SLASH_MODE
 
 
 def allowed_tools(state: FeatureState) -> str:
@@ -124,36 +184,157 @@ def allowed_tools(state: FeatureState) -> str:
     return tools
 
 
-def run_review(prompt: str, tools: str, cwd: Path, output_path: Path) -> tuple[bool, int]:
-    """
-    Run one Beatrice session, retrying once when it fails, times out or prints nothing.
+def build_review_command(prompt: str, tools: str) -> list[str]:
+    return [
+        "claude",
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
+        "--permission-mode",
+        "default",
+        "--allowedTools",
+        tools,
+        "--disallowedTools",
+        DISALLOWED_TOOLS,
+        "--append-system-prompt",
+        FINDINGS_BLOCK_INSTRUCTION,
+    ]
 
-    :param prompt: The review prompt.
-    :param tools: The --allowedTools value.
-    :param cwd: The worktree to review.
-    :param output_path: Where the run's output goes.
-    :return: Whether a run succeeded, and how many attempts it took.
+
+def read_review_result(stdout: str) -> tuple[str, list[str]] | None:
     """
+    Read `claude -p --output-format json` output.
+
+    :param stdout: What claude printed.
+    :return: The answer text and the denied tool names; None when it isn't a successful result.
+    """
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(result, dict) or result.get("is_error") is True:
+        return None
+    answer = result.get("result")
+    if not isinstance(answer, str) or answer.strip() == "":
+        return None
+    denials = result.get("permission_denials")
+    denied_tools: list[str] = []
+    if isinstance(denials, list):
+        for denial in denials:
+            tool_name = denial.get("tool_name") if isinstance(denial, dict) else denial
+            denied_tools.append(str(tool_name))
+
+    return answer, denied_tools
+
+
+def is_unknown_command(answer: str) -> bool:
+    lowered = answer.lower()
+    return any(marker in lowered for marker in UNKNOWN_COMMAND_MARKERS)
+
+
+def has_findings_block(answer: str) -> bool:
+    return FINDINGS_BLOCK_PATTERN.search(answer) is not None
+
+
+def run_review(state: FeatureState, output_path: Path) -> RunResult:
+    """
+    Run one Beatrice session, retrying once; a slash command claude doesn't run is retried in file mode.
+
+    :param state: The feature's state (base, command file, tools, worktree).
+    :param output_path: Where the run's answer (or error output) goes.
+    :return: Whether a run succeeded, how many attempts it took, and notes for the merged file.
+    """
+    mode = starting_mode(state)
+    notes: list[str] = []
     for attempt in range(1, RUN_ATTEMPTS + 1):
         result = command_runner.run_command(
-            [command_runner.find_executable("claude"), "-p", prompt, "--allowedTools", tools],
-            cwd,
+            build_review_command(
+                build_prompt(state, mode),
+                allowed_tools(state),
+            ),
+            state.code_root(),
             RUN_TIMEOUT_SECONDS,
             {ROLE_VARIABLE: REVIEWER_ROLE},
         )
-        output_path.write_text(result.output, encoding="utf-8")
-        if result.succeeded and result.output.strip() != "":
-            return True, attempt
+        review = read_review_result(result.stdout) if result.succeeded else None
+        if review is None:
+            output_path.write_text(result.output, encoding="utf-8")
+            continue
 
-    return False, RUN_ATTEMPTS
+        answer, denied_tools = review
+        output_path.write_text(answer, encoding="utf-8")
+        should_try_file_mode = mode == SLASH_MODE and (is_unknown_command(answer) or not has_findings_block(answer))
+        if should_try_file_mode and attempt < RUN_ATTEMPTS and command_file_prompt(state) is not None:
+            mode = FILE_MODE
+            notes.append(FILE_MODE_RETRY_NOTE)
+            continue
+
+        if len(denied_tools) > 0:
+            denied_text = ", ".join(sorted(set(denied_tools)))
+            notes.append(f"permission denied for: {denied_text}")
+        return RunResult(
+            True,
+            attempt,
+            tuple(notes),
+        )
+
+    return RunResult(
+        False,
+        RUN_ATTEMPTS,
+        tuple(notes),
+    )
 
 
-def is_table_header_or_separator(line: str) -> bool:
-    cells = [cell.strip().lower() for cell in line.strip().strip("|").split("|")]
-    return any(cell in TABLE_HEADER_WORDS for cell in cells)
+def relative_to_code_root(path: str, code_root: Path) -> str:
+    normalized = normalize_path(path)
+    for root in (code_root, code_root.resolve()):
+        root_prefix = root.as_posix().rstrip("/") + "/"
+        if normalized.startswith(root_prefix):
+            return normalized.removeprefix(root_prefix)
+
+    return normalized
 
 
-def build_finding(text: str) -> Finding:
+def parse_findings_block(answer: str, code_root: Path) -> list[Finding] | None:
+    """
+    Read the machine-readable findings block the reviewers were asked to add.
+
+    :param answer: One run's answer.
+    :param code_root: The worktree, to turn absolute paths into repo-relative ones.
+    :return: The findings, or None when the answer has no such block.
+    """
+    block_match = FINDINGS_BLOCK_PATTERN.search(answer)
+    if block_match is None:
+        return None
+    findings: list[Finding] = []
+    for block_line in block_match.group("body").splitlines():
+        if block_line.strip() == "":
+            continue
+
+        try:
+            record = json.loads(block_line)
+        except json.JSONDecodeError:
+            findings.append(Finding(block_line.strip()))
+            continue
+
+        if not isinstance(record, dict):
+            continue
+
+        raw_line = record.get("line", 0)
+        findings.append(
+            Finding(
+                str(record.get("finding", "")).strip(),
+                relative_to_code_root(str(record.get("file", "")), code_root),
+                int(raw_line) if isinstance(raw_line, int) or str(raw_line).isdigit() else 0,
+                str(record.get("rule", "")).strip(),
+            ),
+        )
+
+    return findings
+
+
+def build_finding(text: str, code_root: Path) -> Finding:
     location = LOCATION_PATTERN.search(text)
     explicit_rule = EXPLICIT_RULE_PATTERN.search(text)
     rule_id = RULE_ID_PATTERN.search(text)
@@ -167,44 +348,135 @@ def build_finding(text: str) -> Finding:
         return Finding(text, rule=rule)
     return Finding(
         text,
-        normalize_path(location.group("path")),
+        relative_to_code_root(location.group("path"), code_root),
         int(location.group("line")),
         rule,
     )
 
 
-def parse_findings(output: str) -> list[Finding]:
+def table_cells(table_line: str) -> list[str]:
+    return [cell.strip() for cell in table_line.strip().strip("|").split("|")]
+
+
+def first_column_value(values: dict[str, str], names: tuple[str, ...]) -> str:
+    for name in names:
+        if name in values:
+            return values[name].strip("`")
+
+    return ""
+
+
+def table_row_text(header: list[str], cells: list[str]) -> str:
     """
-    Split a run's output into findings: every bullet, numbered item or table row, with its indented continuation lines.
+    Turn a table row into finding text with its location and rule in a form the parser reads.
 
-    The real output format of Beatrice's command isn't known on this machine, so this stays tolerant; the raw outputs are kept too.
+    :param header: The table's lowercased header cells.
+    :param cells: The row's cells.
+    :return: e.g. "app/x.py:40 rule: PY-23 | truthy check".
+    """
+    values = dict(zip(header, cells))
+    file_value = first_column_value(values, TABLE_FILE_HEADERS)
+    line_value = first_column_value(values, TABLE_LINE_HEADERS)
+    rule_value = first_column_value(values, TABLE_RULE_HEADERS)
+    location = file_value
+    if file_value != "" and line_value.isdigit() and LOCATION_PATTERN.search(file_value) is None:
+        location = f"{file_value}:{line_value}"
+    rule_text = f" rule: {rule_value}" if rule_value != "" else ""
+    return f"{location}{rule_text} | {' | '.join(cells)}".strip()
 
-    :param output: What one run printed.
+
+def parse_free_form(answer: str, code_root: Path) -> list[Finding]:
+    """
+    Split a free-form answer into findings: top-level bullets, numbered items, table rows and numbered or located headings.
+
+    Fenced code blocks are skipped, indented bullets continue the item above, and items under summary-like headings are left out.
+
+    :param answer: One run's answer.
+    :param code_root: The worktree, to turn absolute paths into repo-relative ones.
     :return: The findings in output order.
     """
     items: list[list[str]] = []
     is_in_item = False
-    for output_line in output.splitlines():
-        if ITEM_START_PATTERN.match(output_line) is not None:
-            if output_line.strip().startswith("|") and is_table_header_or_separator(output_line):
-                is_in_item = False
+    is_in_fence = False
+    is_finding_section = True
+    is_heading_item = False
+    table_header: list[str] = []
+    for answer_line in answer.splitlines():
+        if answer_line.strip().startswith(FENCE_PREFIX):
+            is_in_fence = not is_in_fence
+            continue
+
+        if is_in_fence:
+            continue
+
+        heading_match = HEADING_PATTERN.match(answer_line)
+        if heading_match is not None:
+            title = heading_match.group("title")
+            is_located = NUMBERED_HEADING_PATTERN.match(title) is not None or LOCATION_PATTERN.search(title) is not None
+            if is_located:
+                items.append([title.strip()])
+                is_in_item = True
+                is_heading_item = True
                 continue
 
-            items.append([output_line.strip()])
+            is_heading_item = False
+            is_finding_section = not any(word in title.lower() for word in NON_FINDING_HEADING_WORDS)
+            is_in_item = False
+            table_header = []
+            continue
+
+        if not is_finding_section:
+            continue
+
+        if answer_line.strip().startswith("|"):
+            if TABLE_SEPARATOR_PATTERN.match(answer_line.strip()) is not None:
+                continue
+
+            if len(table_header) == 0:
+                table_header = [cell.lower() for cell in table_cells(answer_line)]
+                continue
+
+            items.append(
+                [table_row_text(table_header, table_cells(answer_line))],
+            )
+            is_in_item = False
+            continue
+
+        table_header = []
+        if ITEM_START_PATTERN.match(answer_line) is not None and not (is_heading_item and is_in_item):
+            items.append([answer_line.strip()])
             is_in_item = True
             continue
 
-        if is_in_item and CONTINUATION_PATTERN.match(output_line) is not None:
-            items[-1].append(output_line.strip())
+        if answer_line.strip() == "":
+            continue
+
+        is_continuation = CONTINUATION_PATTERN.match(answer_line) is not None or is_heading_item
+        if is_in_item and is_continuation:
+            items[-1].append(answer_line.strip())
             continue
 
         is_in_item = False
 
     return [
-        build_finding("\n".join(item))
+        build_finding("\n".join(item), code_root)
         for item in items
         if "".join(item).strip("|-*+ ") != ""
     ]
+
+
+def parse_findings(answer: str, code_root: Path) -> list[Finding]:
+    """
+    Read one run's findings: the machine-readable block when present, else the free-form text.
+
+    :param answer: One run's answer.
+    :param code_root: The worktree, to turn absolute paths into repo-relative ones.
+    :return: The findings.
+    """
+    block_findings = parse_findings_block(answer, code_root)
+    if block_findings is not None:
+        return block_findings
+    return parse_free_form(answer, code_root)
 
 
 def merge_findings(first: list[Finding], second: list[Finding]) -> list[MergedFinding]:
@@ -233,13 +505,53 @@ def merge_findings(first: list[Finding], second: list[Finding]) -> list[MergedFi
 
         unmatched_second.remove(match)
         other_text = "" if match.normalized_text == finding.normalized_text else match.text
-        shared.append(MergedFinding(finding, "2/2", other_text))
+        shared.append(
+            MergedFinding(
+                finding,
+                "2/2",
+                other_text,
+            ),
+        )
 
     only_second = [
         MergedFinding(finding, "1/2")
         for finding in unmatched_second
     ]
     return [*shared, *only_first, *only_second]
+
+
+def finding_records(state: FeatureState, round_number: int, merged: list[MergedFinding]) -> list[dict[str, object]]:
+    """
+    Build the stored record of every merged finding, capturing the flagged line's text now.
+
+    :param state: The feature's state.
+    :param round_number: The Beatrice round.
+    :param merged: The merged findings.
+    :return: One record per finding, in the order of beatrice-<round>.md.
+    """
+    records: list[dict[str, object]] = []
+    for index, merged_finding in enumerate(merged, start=1):
+        finding = merged_finding.finding
+        line_text = ""
+        if finding.file != "":
+            line_text = read_line_text(
+                state.code_root(),
+                finding.file,
+                finding.line,
+            )
+        records.append(
+            {
+                "id": f"R{round_number}-{index}",
+                "marks": merged_finding.marks,
+                "file": finding.file,
+                "line": finding.line,
+                "rule": finding.rule,
+                "text": finding.text,
+                "line_text": line_text,
+            },
+        )
+
+    return records
 
 
 def render_merged(
@@ -255,7 +567,7 @@ def render_merged(
     :param state: The feature's state.
     :param round_number: The Beatrice round.
     :param merged: The merged findings.
-    :param run_notes: One line per run (ok, retried, failed).
+    :param run_notes: One line per run (ok, retried, failed, denials).
     :param dismissed: The findings dismissed in earlier rounds.
     :return: The markdown text of review/beatrice-<round>.md.
     """
@@ -266,40 +578,39 @@ def render_merged(
         *[f"- {note}" for note in run_notes],
         f"- Raw outputs: review/beatrice-{round_number}-a.md, review/beatrice-{round_number}-b.md",
         "",
-        "Triage every finding in review/triage.md as `fix` or `dismiss: <reason pointing to a line or a rule>`. "
-        "1/2 findings count as much as 2/2.",
+        "Triage every finding in review/triage.md as `fix` or `dismiss` with a reason pointing to a line or a rule, "
+        "using the finding's id in the `#` column. 1/2 findings count as much as 2/2.",
         "",
     ]
     if len(merged) == 0:
         lines.append(
             "No findings could be read from the outputs. Read the raw outputs above.",
         )
-    for index, merged_finding in enumerate(merged, start=1):
+    records = finding_records(
+        state,
+        round_number,
+        merged,
+    )
+    for merged_finding, record in zip(merged, records):
         finding = merged_finding.finding
         location = f"{finding.file}:{finding.line}" if finding.file != "" else "no file"
         rule = finding.rule if finding.rule != "" else "no rule"
         lines.extend(
-            [f"## R{round_number}-{index} | {merged_finding.marks} | {location} | {rule}", "", finding.text],
+            [f"## {record['id']} | {merged_finding.marks} | {location} | {rule}", "", finding.text],
         )
         if merged_finding.other_text != "":
             lines.extend(["", f"Other run: {merged_finding.other_text}"])
 
-        if finding.file != "":
-            line_text = read_line_text(
-                state.code_root(),
-                finding.file,
-                finding.line,
+        dismissal = find_dismissal(
+            dismissed,
+            finding.file,
+            finding.rule,
+            str(record["line_text"]),
+        )
+        if dismissal is not None:
+            lines.extend(
+                ["", f"**Dismissed in round {dismissal.round}, because {dismissal.reason}**"],
             )
-            dismissal = find_dismissal(
-                dismissed,
-                finding.file,
-                finding.rule,
-                line_text,
-            )
-            if dismissal is not None:
-                lines.extend(
-                    ["", f"**Dismissed in round {dismissal.round}, because {dismissal.reason}**"],
-                )
 
         lines.append("")
 
@@ -307,14 +618,37 @@ def render_merged(
 
 
 def append_to_beatrice_log(state: FeatureState, merged: list[MergedFinding]):
+    """
+    Append round 1's findings to beatrice-log.md once, so recurring ones can become rules later.
+
+    :param state: The feature's state.
+    :param merged: Round 1's merged findings.
+    """
     log_path = state.feature_directory / BEATRICE_LOG_NAME
-    entries = [f"## {state.field('Ticket')} round 1 ({datetime.now().strftime(LOG_TIME_FORMAT)})"]
+    header_start = f"## {state.field('Ticket')} round 1 "
+    if log_path.is_file() and any(line.startswith(header_start) for line in log_path.read_text(encoding="utf-8").splitlines()):
+        return
+    entries = [f"{header_start}({datetime.now().strftime(LOG_TIME_FORMAT)})"]
     entries.extend(
         f"- {merged_finding.marks} {merged_finding.finding.rule} {merged_finding.finding.text.splitlines()[0]}"
         for merged_finding in merged
+        if merged_finding.finding.text != ""
     )
     with log_path.open("a", encoding="utf-8") as log_file:
         log_file.write("\n".join(entries) + "\n\n")
+
+
+def run_both_reviews(state: FeatureState, output_paths: list[Path]) -> list[RunResult]:
+    with ThreadPoolExecutor(max_workers=len(RUN_LABELS)) as executor:
+        futures = [
+            executor.submit(
+                run_review,
+                state,
+                output_path,
+            )
+            for output_path in output_paths
+        ]
+        return [future.result() for future in futures]
 
 
 def run_round(state: FeatureState, round_number: int) -> int:
@@ -325,53 +659,39 @@ def run_round(state: FeatureState, round_number: int) -> int:
     :param round_number: The Beatrice round, 1 to 5.
     :return: The exit code.
     """
-    review_directory = state.feature_directory / "review"
-    review_directory.mkdir(parents=True, exist_ok=True)
-    prompt = build_prompt(state)
-    tools = allowed_tools(state)
-    output_paths = [review_directory / f"beatrice-{round_number}-{label}.md" for label in RUN_LABELS]
-    with running_marker(
-        state.feature_directory,
-        f"beatrice round {round_number}",
-    ):
-        with ThreadPoolExecutor(max_workers=len(RUN_LABELS)) as executor:
-            futures = [
-                executor.submit(
-                    run_review,
-                    prompt,
-                    tools,
-                    state.code_root(),
-                    output_path,
-                )
-                for output_path in output_paths
-            ]
-            results = [future.result() for future in futures]
-
-    state = FeatureState.load(state.path)
+    review_path = state.feature_directory / "review"
+    review_path.mkdir(parents=True, exist_ok=True)
+    output_paths = [review_path / f"beatrice-{round_number}-{label}.md" for label in RUN_LABELS]
+    results = run_both_reviews(state, output_paths)
+    state.reload()
     run_notes: list[str] = []
     findings_per_run: list[list[Finding]] = []
-    for label, output_path, (succeeded, attempts) in zip(
+    for label, output_path, result in zip(
         RUN_LABELS,
         output_paths,
         results,
     ):
-        if not succeeded:
+        if not result.succeeded:
             run_notes.append(
                 f"Run {label}: failed twice, its findings are missing",
             )
             findings_per_run.append([])
             continue
 
-        retry_note = "" if attempts == 1 else " (after a retry)"
-        run_notes.append(f"Run {label}: ok{retry_note}")
+        retry_note = "" if result.attempts == 1 else " (after a retry)"
+        extra_notes = "".join(f"; {note}" for note in result.notes)
+        run_notes.append(f"Run {label}: ok{retry_note}{extra_notes}")
         findings_per_run.append(
-            parse_findings(output_path.read_text(encoding="utf-8")),
+            parse_findings(
+                output_path.read_text(encoding="utf-8"),
+                state.code_root(),
+            ),
         )
 
     state.log(
         f"Beatrice round {round_number}: " + "; ".join(run_notes),
     )
-    if not any(succeeded for succeeded, _ in results):
+    if not any(result.succeeded for result in results):
         failed_runs = state.record_failure(f"BEATRICE-{round_number}")
         state.save()
         print(
@@ -379,7 +699,18 @@ def run_round(state: FeatureState, round_number: int) -> int:
         )
         return FAILED_EXIT_CODE
     merged = merge_findings(findings_per_run[0], findings_per_run[1])
-    merged_path = review_directory / f"beatrice-{round_number}.md"
+    (review_path / f"beatrice-{round_number}.json").write_text(
+        json.dumps(
+            finding_records(
+                state,
+                round_number,
+                merged,
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    merged_path = review_path / f"beatrice-{round_number}.md"
     merged_path.write_text(
         render_merged(
             state,
@@ -417,7 +748,15 @@ def main() -> int:
     except FeatureNotFoundError as missing_error:
         print(missing_error)
         return SETUP_ERROR_EXIT_CODE
-    return run_round(state, arguments.round)
+    try:
+        with running_marker(
+            state.feature_directory,
+            f"beatrice round {arguments.round}",
+        ):
+            return run_round(state, arguments.round)
+    except StepAlreadyRunningError as running_error:
+        print(f"Setup error: {running_error}")
+        return SETUP_ERROR_EXIT_CODE
 
 
 if __name__ == "__main__":

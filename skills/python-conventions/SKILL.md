@@ -40,7 +40,7 @@ Use **`uv`** for every package and environment operation:
     - If you are not sure whether the type is clear, **always add the type annotation**.
 - **Static Verification**:
     - In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`, which drops only the errors the no-`-> None` rule causes) on the changed lines only.
-    - Outside the workflow, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_python_conventions.py" <files>` and judge only the lines you changed. For types use `python "${CLAUDE_PLUGIN_ROOT}/scripts/mypy_strict.py" <package>`, never plain mypy.
+    - Outside the workflow, run `python3 "$HOME/.claude/midnight-workflow/scripts/check_python_conventions.py" <files>` and judge only the lines you changed. For types use `python3 "$HOME/.claude/midnight-workflow/scripts/mypy_strict.py" <package>`, never plain mypy.
     - Never add `-> None` to silence mypy.
 - **Optional Returns**: In a function annotated `-> X | None`, write `return None` explicitly. mypy rejects a bare `return` there ("Return value expected").
 
@@ -451,7 +451,8 @@ class SiteInput(BaseModel):
 - **Strings of 5+ words** (SQL, templates, multi-line text, long non-error messages) become named constants in the `Consts` section, so they're easy to find and change.
 - **Except where reading the string in place matters**, whatever its length and even when it repeats: error messages, anything passed to `raise`, strings inside models and error classes, settings, and similar. Write them inline (`raise SiteNotFoundError(f"Site {site_id} was not found.")`).
 - **Short strings** (4 words or fewer: keys, labels, `"Site not found"`) stay inline where they're used. Moving them into constants only hides them and makes quick changes slower.
-- **Important keys are constants**: a specific string that matters, such as a settings key inside a dict, is a constant whatever its length, so it's easy to change in one place.
+- **Settings stay inline** (decision 2): settings keys and values are read in place, so they are not moved into constants, whatever their length.
+- The Python threshold (5+ words) is deliberately higher than the frontend's (4+ words, see `vue-conventions` §7).
 - **Strings in tests are never constants.**
 
 ---

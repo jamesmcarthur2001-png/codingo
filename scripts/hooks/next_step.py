@@ -1,5 +1,11 @@
+#!/usr/bin/env python3
 """
 Stop hook: keeps the orchestrator working after the spec is approved, and tells it the next step from state.md.
+
+It acts only for the session that runs the feature: the first stop after approval records the payload's
+session_id as `Session:` in state.md, and later stops from other sessions are let through.
+Circuit breaker: after 8 blocks in a row without state.md changing, it writes `BLOCKED: no progress` and lets the stop happen.
+The payload's `stop_hook_active` flag isn't used; the breaker is what ends a loop of blocks.
 
 :author: midnight-workflow
 :date: 28/10/2026
@@ -13,35 +19,38 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from feature_state import FeatureState, STATE_FILE_NAME, find_active_feature, is_reviewer_session, running_step
+from feature_state import FeatureState, STATE_FILE_NAME, find_active_feature, is_reviewer_session, read_json_file, running_step, write_atomically
 
 # ----- Consts ----- #
 
 BLOCK_COUNTER_NAME = ".stop-hook.json"
 MAX_BLOCKS_WITHOUT_PROGRESS = 8
-APPROVED_VALUE = "yes"
 MAX_BEATRICE_ROUNDS = 5
+SCRIPTS_PATH = "$HOME/.claude/midnight-workflow/scripts"
 STEP_TEMPLATES = {
     "BUILD": (
         "Implement slice {slice} of plan.md (only its Files). Then run "
-        "`python \"{scripts}/check_slice.py\" {ticket} {slice}` and fix what it lists (it advances state.md when it passes)."
+        "`python3 \"{scripts}/check_slice.py\" {ticket} {slice}` and fix what it lists (it advances state.md when it passes)."
     ),
     "TESTS": (
         "Write test-plan.md (four columns: test name, what it checks, expected result, file), then the tests. "
-        "Run them and the changed-line coverage, fix failures, then set `Phase: GATE-A` in state.md."
+        "Run them and every coverage* command, fix failures, then set `Tries: 0` and `Phase: GATE-A` in state.md."
     ),
     "GATE-A": (
-        "Run `python \"{scripts}/gate_a.py\" {ticket}` and fix what it lists (it sets `Phase: GATE-B` when it passes)."
+        "Run `python3 \"{scripts}/gate_a.py\" {ticket}` and fix what it lists. When it passes it sets `Phase: GATE-B`, "
+        "or `Phase: FINISH` once round {max_rounds} is triaged."
     ),
     "GATE-B": (
-        "Round {round} of {max_rounds}: run `python \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background "
-        "and wait for it. Then triage review/beatrice-{round}.md into review/triage.md (`fix` or `dismiss: <reason>` per finding), "
-        "fix, and set `Round: {next_round}` and `Phase: GATE-A`. If nothing needs fixing, or this was round {max_rounds}, "
-        "set `Phase: FINISH`."
+        "Round {round} of {max_rounds}. If review/triage.md already has `## Round {round}`, go straight to the decision below. "
+        "Else, if review/beatrice-{round}.md doesn't exist, run `python3 \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background and wait. "
+        "Triage every finding of review/beatrice-{round}.md into review/triage.md under `## Round {round}` (`fix`, or `dismiss` with a reason). "
+        "Decision: no `fix` rows → `Phase: FINISH`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
+        "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: GATE-A`."
     ),
     "FINISH": (
-        "Run `python \"{scripts}/finish_branch.py\" {ticket}` and act on its exit code: "
-        "10 resolve the conflict, run the tests, run it again; 20 fix the pipeline, run it again; 30 you are blocked."
+        "Run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background and act on its exit code: "
+        "0 go to SUMMARY; 10 resolve the conflict, git add, run the tests, run it again; 20 fix the pipeline, run it again; "
+        "30 push rejected, you are blocked; 1 or 2 fix the cause from the message, run it again."
     ),
     "SUMMARY": (
         "Write summary.md (what was built, every Beatrice finding and what happened to it, what's left for the user), "
@@ -77,7 +86,7 @@ def next_step(state: FeatureState) -> str:
     round_number = max(state.number_field("Round"), 1)
     slice_number = max(state.number_field("Slice"), 1)
     instruction = template.format(
-        scripts=Path(__file__).resolve().parent.parent.as_posix(),
+        scripts=SCRIPTS_PATH,
         ticket=state.field("Ticket"),
         slice=slice_number,
         round=round_number,
@@ -98,17 +107,38 @@ def count_block(feature_directory: Path, state_text: str) -> int:
     counter_path = feature_directory / BLOCK_COUNTER_NAME
     state_hash = hashlib.sha256(state_text.encode("utf-8")).hexdigest()
     blocks = 0
-    if counter_path.is_file():
-        counter = json.loads(counter_path.read_text(encoding="utf-8"))
-        if isinstance(counter, dict) and counter.get("state_hash") == state_hash:
-            blocks = int(counter.get("blocks", 0))
+    counter = read_json_file(counter_path)
+    if counter is not None and counter.get("state_hash") == state_hash:
+        stored_blocks = counter.get("blocks")
+        if isinstance(stored_blocks, int):
+            blocks = stored_blocks
 
     blocks += 1
-    counter_path.write_text(
+    write_atomically(
+        counter_path,
         json.dumps({"state_hash": state_hash, "blocks": blocks}),
-        encoding="utf-8",
     )
     return blocks
+
+
+def reset_block_count(feature_directory: Path):
+    (feature_directory / BLOCK_COUNTER_NAME).unlink(missing_ok=True)
+
+
+def is_other_session(state: FeatureState, session_id: str) -> bool:
+    """
+    Tell whether this stop comes from a session other than the feature's orchestrator, recording the orchestrator first.
+
+    :param state: The approved feature's state.
+    :param session_id: The payload's session_id (may be empty).
+    :return: True when state.md names another session.
+    """
+    recorded_session = state.field("Session")
+    if recorded_session == "" and session_id != "":
+        state.set_field("Session", session_id)
+        state.save()
+        return False
+    return recorded_session != "" and session_id != recorded_session
 
 
 def main() -> int:
@@ -119,9 +149,13 @@ def main() -> int:
     if feature_directory is None or not (feature_directory / STATE_FILE_NAME).is_file():
         return 0
     state = FeatureState.load(feature_directory / STATE_FILE_NAME)
-    if state.is_finished() or state.field("Approved").lower() != APPROVED_VALUE:
+    if not state.is_running_after_approval():
+        reset_block_count(feature_directory)
+        return 0
+    if is_other_session(state, str(payload.get("session_id", ""))):
         return 0
     if running_step(feature_directory) is not None:
+        reset_block_count(feature_directory)
         return 0
     blocks = count_block(
         feature_directory,
@@ -130,7 +164,7 @@ def main() -> int:
     if blocks > MAX_BLOCKS_WITHOUT_PROGRESS:
         state.block("no progress")
         state.save()
-        (feature_directory / BLOCK_COUNTER_NAME).unlink(missing_ok=True)
+        reset_block_count(feature_directory)
         return 0
     decision = {
         "decision": "block",

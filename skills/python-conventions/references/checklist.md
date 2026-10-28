@@ -16,7 +16,7 @@ twilight rules: `services/twilight/CLAUDE.md`. midnight_models rules: `libs/midn
 
 ## How to run
 - In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`) on the changed lines only. Copy their result for the items marked (auto), then judge the rest.
-- Outside the workflow, run `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_python_conventions.py" <files>` and judge only the lines you changed.
+- Outside the workflow, run `python3 "$HOME/.claude/midnight-workflow/scripts/check_python_conventions.py" <files>` and judge only the lines you changed.
 - Never add `-> None` to silence mypy.
 
 ## Scope

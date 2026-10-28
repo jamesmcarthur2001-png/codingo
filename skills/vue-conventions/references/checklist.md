@@ -58,6 +58,7 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 - [ ] VU-21 Empty-string checks use `.trim()` (`x.trim().length === 0`)
 - [ ] VU-55 No `any`: `unknown` plus narrowing when the shape is truly unknown
 - [ ] VU-56 `===` / `!==` only, never `==` / `!=`
+- [ ] VU-57 (auto) No `eslint-disable`, `/* eslint rule: off */`, `@ts-ignore`, `@ts-expect-error` or `@ts-nocheck`, and no new `off` rules in the eslint config
 - [ ] VU-33 (auto) No `??`, `??=`, `?.`, `!!`, or `||` / `&&` used to pick a value. Uses a full `if` with an explicit check.
 - [ ] VU-34 Choosing which function to call (or whether to call one) uses a full `if` / `else`, never a ternary
 - [ ] VU-44 Early returns: a loop body that is one `if` inverts it and `continue`s; a function body that is one `if` inverts it and `return`s

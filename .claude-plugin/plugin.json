@@ -1,8 +1,0 @@
-{
-  "name": "midnight-workflow",
-  "version": "0.2.0",
-  "description": "midnight-api feature workflow: one orchestrator driven by state.md and a Stop hook, 3 parallel explorers, changed-line checks, Gate A, Beatrice in the loop, and a finish script.",
-  "author": {
-    "name": "midnight-workflow"
-  }
-}

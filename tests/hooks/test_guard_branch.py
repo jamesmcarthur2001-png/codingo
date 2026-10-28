@@ -21,6 +21,20 @@ from guard_branch import find_branch_changes
         ("git push origin HEAD:BTRC-12-new", "BTRC-12-new"),
         ("git push origin HEAD:refs/heads/BTRC-12-new", "BTRC-12-new"),
         ("cd repo && git -C sub checkout -b BTRC-12-new", "BTRC-12-new"),
+        ("git switch --create=BTRC-12-new", "BTRC-12-new"),
+        ("git checkout -bBTRC-12-new", "BTRC-12-new"),
+        ("git status & git checkout -b BTRC-12-new", "BTRC-12-new"),
+        ('bash -c "git switch -c BTRC-12-new"', "BTRC-12-new"),
+        ("sh -lc 'cd repo && git checkout -b BTRC-12-new'", "BTRC-12-new"),
+        ("GIT_TRACE=1 git checkout -b BTRC-12-new", "BTRC-12-new"),
+        ("sudo git checkout -b BTRC-12-new", "BTRC-12-new"),
+        ("env FOO=1 git checkout -b BTRC-12-new", "BTRC-12-new"),
+        ("(git checkout -b BTRC-12-new)", "BTRC-12-new"),
+        ("git checkout --orphan BTRC-12-new", "BTRC-12-new"),
+        ("git worktree add .worktrees/BTRC-12-new", "BTRC-12-new"),
+        ("git worktree add -bBTRC-12-new .worktrees/x master", "BTRC-12-new"),
+        ("git status\ngit checkout -b BTRC-12-new", "BTRC-12-new"),
+        ("git push -u origin +HEAD:BTRC-12-new", "BTRC-12-new"),
     ],
 )
 def test_find_branch_changes_branch_creating_commands_return_new_name(command: str, expected_name: str):
@@ -39,6 +53,14 @@ def test_find_branch_changes_branch_creating_commands_return_new_name(command: s
         "git push origin BTRC-12-old",
         "git switch BTRC-12-old",
         "echo git checkout -b BTRC-12-new",
+        'echo "x; git checkout -b BTRC-12-new"',
+        "git push origin :BTRC-12-old",
+        "git push --delete origin BTRC-12-old",
+        "git push -d origin BTRC-12-old",
+        "git worktree add .worktrees/x BTRC-12-existing",
+        "git worktree add --detach .worktrees/x",
+        "# git checkout -b BTRC-12-new",
+        "git branch --contains abc123",
     ],
 )
 def test_find_branch_changes_non_creating_commands_return_nothing(command: str):
@@ -102,5 +124,31 @@ def test_guard_branch_reviewer_role_allows(git_repository: Path, run_hook: Calla
         bash_payload(git_repository, "git checkout -b BTRC-12-second-try"),
         {"MIDNIGHT_ROLE": "reviewer"},
     )
+
+    assert completed.returncode == 0
+
+
+def test_guard_branch_fetch_failure_still_checks_local_branches_and_says_so(git_repository: Path, run_hook: Callable[..., object]):
+    git(git_repository, "remote", "add", "origin", str(git_repository / "missing-remote"))
+    git(git_repository, "branch", "BTRC-12-first-try")
+
+    completed = run_hook("guard_branch.py", bash_payload(git_repository, "git checkout -b BTRC-12-second-try"))
+
+    assert completed.returncode == 2
+    assert "may be stale" in completed.stderr
+
+
+def test_guard_branch_bash_c_wrapper_blocks(git_repository: Path, run_hook: Callable[..., object]):
+    git(git_repository, "branch", "BTRC-12-first-try")
+
+    completed = run_hook("guard_branch.py", bash_payload(git_repository, 'bash -c "git switch --create=BTRC-12-second-try"'))
+
+    assert completed.returncode == 2
+
+
+def test_guard_branch_deleting_a_remote_branch_allows(git_repository: Path, run_hook: Callable[..., object]):
+    git(git_repository, "branch", "BTRC-12-first-try")
+
+    completed = run_hook("guard_branch.py", bash_payload(git_repository, "git push origin :BTRC-12-old-name"))
 
     assert completed.returncode == 0

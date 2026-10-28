@@ -5,8 +5,8 @@ Spec: `spec.md` · Status: DRAFT | APPROVED (<date>)
 <!--
 Format rules (scripts/scope_check.py parses this file):
 - 2–4 slices. Each is a `## Slice <n>: <name>` header. No other headers inside a slice.
-- `Files:` comes first, then one `- \`path\`` bullet per file, repo-relative, forward slashes.
-  A folder ending in `/` or a glob (`services/evermore/app/entities/*.py`) is allowed.
+- `Files:` comes first, then one `- \`path\`` bullet per file, repo-relative.
+  A folder ending in `/` or a glob (`services/evermore/app/entities/*.py`; `*` stays in one folder, `**` crosses folders) is allowed.
 - A changed file not listed in any slice up to the current one fails check_slice.py.
 - Tests are not listed here: test files come from the File column of test-plan.md.
 - Order slices by dependency: model/migration → manager/reader → API route → proxy route → frontend types/client → components/views.

@@ -6,7 +6,7 @@ New code follows the conventions. Existing lines change only when the task needs
 Don't rename, reformat, retype, reorder or "fix" existing code for conventions, even in a file you're editing.
 
 ## Asking me questions
-Before asking about a requirement, restate it in one sentence in my words, then ask.
+Before asking about a requirement, quote my words for the requirement verbatim, then ask.
 
 ## Checking
 Say something works, passes, or is how the architecture behaves only after checking it, and show the output.
@@ -24,3 +24,6 @@ If you can't check it, say so and raise it as an open problem.
 - Strings of 5+ words are constants. Except where reading them in place matters: error messages, raise, settings.
 - New routers use prefix=, not tags=.
 - No # noqa, # type: ignore, # pylint: disable. Fix the code instead.
+
+## Frontend
+- No eslint-disable, @ts-ignore, @ts-expect-error. Fix the code instead.
