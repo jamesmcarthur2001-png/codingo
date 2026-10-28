@@ -1,0 +1,16 @@
+{
+  "name": "midnight-workflow",
+  "owner": {
+    "name": "midnight-workflow"
+  },
+  "metadata": {
+    "description": "midnight-api workflow plugin."
+  },
+  "plugins": [
+    {
+      "name": "midnight-workflow",
+      "source": "./",
+      "description": "Feature workflow for the midnight-api monorepo (evermore, twilight, midnight_models, Vue/Vuetify frontend)."
+    }
+  ]
+}
