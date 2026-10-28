@@ -22,6 +22,7 @@ from pathlib import Path
 import command_runner
 from feature_state import FeatureNotFoundError, FeatureState, StepAlreadyRunningError, load_feature_state, refresh_running_marker, running_marker
 from git_changes import is_ancestor, run_git
+from worktree import WorktreeError, remove_worktree as remove_feature_worktree
 
 # ----- Consts ----- #
 
@@ -89,6 +90,13 @@ class BranchContext:
     worktree: str
     compose_project: str
     compose_files: tuple[str, ...]
+    uses_worktree: bool
+
+    @property
+    def checkout_name(self) -> str:
+        if self.uses_worktree:
+            return f"The worktree {self.code_root}"
+        return f"The main checkout {self.code_root}"
 
 # ----- Functions ----- #
 
@@ -123,6 +131,11 @@ def read_context(state: FeatureState) -> BranchContext:
             SETUP_ERROR_EXIT_CODE,
             f"`Branch:` and `Base:` are both '{branch}'. The script never commits to or pushes the base.",
         )
+    if state.uses_worktree() and state.field("Worktree") == "":
+        raise FinishStepError(
+            SETUP_ERROR_EXIT_CODE,
+            "`Worktree:` is empty but `Worktree mode:` isn't `none`. Run worktree.py create, or set `Worktree mode: none`.",
+        )
     return BranchContext(
         state.field("Ticket"),
         branch,
@@ -132,6 +145,7 @@ def read_context(state: FeatureState) -> BranchContext:
         state.field("Worktree"),
         state.field("Compose project"),
         tuple(state.field("Compose files").split()),
+        state.uses_worktree(),
     )
 
 
@@ -220,7 +234,7 @@ def require_feature_branch(context: BranchContext):
         return
     raise FinishStepError(
         SETUP_ERROR_EXIT_CODE,
-        f"The worktree {context.code_root} is on '{current}', not on '{context.branch}'. Nothing was committed or pushed.",
+        f"{context.checkout_name} is on '{current}', not on '{context.branch}'. Nothing was committed or pushed.",
     )
 
 
@@ -606,26 +620,28 @@ def stop_containers(state: FeatureState, context: BranchContext):
 
 
 def remove_worktree(state: FeatureState, context: BranchContext):
-    if context.worktree == "":
+    """
+    Remove the feature's worktree with worktree.py's logic; in no-worktree mode there is nothing to remove.
+
+    :param state: The feature's state.
+    :param context: The branch context.
+    :raises FinishStepError: With code 1 when git can't remove the worktree.
+    """
+    if not context.uses_worktree:
         record_step(
             state,
             "worktree",
-            "(no worktree in state.md)",
+            "(no worktree: the feature used the main checkout)",
         )
         return
-    removed = git(
-        ["worktree", "remove", str(context.code_root)],
-        context.repository_root,
-    )
-    require_success(
-        removed,
-        OTHER_ERROR_EXIT_CODE,
-        f"git worktree remove {context.code_root} failed (uncommitted files, or a program still has it open).",
-    )
+    try:
+        removed = remove_feature_worktree(state)
+    except WorktreeError as worktree_error:
+        raise FinishStepError(OTHER_ERROR_EXIT_CODE, str(worktree_error))
     record_step(
         state,
         "worktree",
-        f"({context.code_root})",
+        f"({removed})",
     )
 
 

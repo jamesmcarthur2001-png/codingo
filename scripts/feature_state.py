@@ -36,6 +36,15 @@ MAX_FAILED_RUNS = 3
 RUNNING_MARKER_MAX_AGE_SECONDS = 75 * 60
 APPROVED_PREFIX = "yes"
 CHECKS_VARIABLE = "MIDNIGHT_CHECKS"
+AFTER_APPROVAL_PHASES = ("BUILD", "TESTS", "GATE-A", "GATE-B", "VIDEO", "FINISH", "SUMMARY")
+FRONTEND_SECTION = "Frontend"
+FRONTEND_OPTION_PATTERN = re.compile(
+    r"^\s*[-*]\s+(?P<name>[^:]+?)\s*:\s*(?P<value>.*)$",
+)
+YES_PREFIX = "yes"
+NO_WORKTREE_MODE = "none"
+PLAYWRIGHT_REVIEWER_OPTION = "Playwright reviewer"
+VIDEO_OPTION = "Video"
 LOG_TIME_FORMAT = "%d/%m/%Y %H:%M"
 
 # ----- Classes ----- #
@@ -191,6 +200,31 @@ class FeatureState:
 
     def is_running_after_approval(self) -> bool:
         return self.is_approved() and not self.is_finished()
+
+    def frontend_option(self, name: str) -> str:
+        """
+        Read one answer of the `## Frontend` section (`- Name: value` lines, filled in by the grill).
+
+        :param name: The option, e.g. `Playwright reviewer`.
+        :return: Its value, or an empty string when the section or option is missing.
+        """
+        for option_line in self.section(FRONTEND_SECTION):
+            option_match = FRONTEND_OPTION_PATTERN.match(option_line)
+            if option_match is not None and option_match.group("name").lower() == name.lower():
+                return option_match.group("value").strip()
+
+        return ""
+
+    def is_frontend_option_on(self, name: str) -> bool:
+        return self.frontend_option(name).lower().startswith(YES_PREFIX)
+
+    def phase_after_review(self) -> str:
+        if self.is_frontend_option_on(VIDEO_OPTION):
+            return "VIDEO"
+        return "FINISH"
+
+    def uses_worktree(self) -> bool:
+        return self.field("Worktree mode").lower() != NO_WORKTREE_MODE
 
     def block(self, reason: str):
         self.set_field("Status", f"{BLOCKED_STATUS}: {reason}")

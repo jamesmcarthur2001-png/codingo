@@ -10,7 +10,7 @@ WORKFLOW_DIR="$CLAUDE_DIR/midnight-workflow"
 MANIFEST="$WORKFLOW_DIR/installed-files.txt"
 BACKUP_DIR="$WORKFLOW_DIR/backup"
 COMMANDS=(feature.md map-services.md map-library.md)
-AGENTS=(explorer.md doc-auditor.md skill-mapper.md)
+AGENTS=(explorer.md doc-auditor.md skill-mapper.md conventions-reviewer.md playwright-reviewer.md)
 
 if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
     echo "midnight-workflow needs python3 3.10 or newer." >&2

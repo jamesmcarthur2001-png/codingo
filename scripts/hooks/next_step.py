@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from feature_state import FeatureState, STATE_FILE_NAME, find_active_feature, is_reviewer_session, read_json_file, running_step, write_atomically
+from feature_state import AFTER_APPROVAL_PHASES, FeatureState, PLAYWRIGHT_REVIEWER_OPTION, STATE_FILE_NAME, find_active_feature, is_reviewer_session, read_json_file, running_step, write_atomically
 
 # ----- Consts ----- #
 
@@ -38,14 +38,22 @@ STEP_TEMPLATES = {
     ),
     "GATE-A": (
         "Run `python3 \"{scripts}/gate_a.py\" {ticket}` and fix what it lists. When it passes it sets `Phase: GATE-B`, "
-        "or `Phase: FINISH` once round {max_rounds} is triaged."
+        "or `Phase: {after_review}` once round {max_rounds} is triaged."
     ),
     "GATE-B": (
         "Round {round} of {max_rounds}. If review/triage.md already has `## Round {round}`, go straight to the decision below. "
-        "Else, if review/beatrice-{round}.md doesn't exist, run `python3 \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background and wait. "
-        "Triage every finding of review/beatrice-{round}.md into review/triage.md under `## Round {round}` (`fix`, or `dismiss` with a reason). "
-        "Decision: no `fix` rows → `Phase: FINISH`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
+        "Else start the round's reviews in one message: `python3 \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background "
+        "(skip it if review/beatrice-{round}.md exists), the `conventions-reviewer` agent (writes review/conventions-{round}.md){playwright}. "
+        "When all are done, run `python3 \"{scripts}/review_round.py\" capture {ticket} {round}` before fixing anything. "
+        "Triage every finding of every source into review/triage.md under `## Round {round}` (Source column: beatrice, conventions, playwright; "
+        "`fix`, or `dismiss` with a reason). "
+        "Decision: no `fix` rows → `Phase: {after_review}`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
         "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: GATE-A`."
+    ),
+    "VIDEO": (
+        "Record one Playwright run with `recordVideo` that walks the new behaviour step by step, with short pauses, "
+        "and save it as docs/features/{ticket}/video/{ticket}.webm. If recording fails, note why in `## Log` and summary.md "
+        "and continue; never write BLOCKED for this. Then set `Phase: FINISH`."
     ),
     "FINISH": (
         "Run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background and act on its exit code: "
@@ -57,6 +65,9 @@ STEP_TEMPLATES = {
         "set `Status: DONE` in state.md and delete docs/features/.active."
     ),
 }
+PLAYWRIGHT_STEP = (
+    ", and the `playwright-reviewer` agent (writes review/playwright-{round}.md) when `python3 \"{scripts}/review_round.py\" playwright-needed {ticket} {round}` prints yes"
+)
 UNKNOWN_PHASE_TEMPLATE = (
     "state.md has `Phase: {phase}`, which has no next step. Set Phase to one of: {phases}, or write `Status: BLOCKED: <reason>`."
 )
@@ -82,9 +93,19 @@ def next_step(state: FeatureState) -> str:
     phase = state.field("Phase")
     template = STEP_TEMPLATES.get(phase)
     if template is None:
-        return UNKNOWN_PHASE_TEMPLATE.format(phase=phase, phases=", ".join(STEP_TEMPLATES))
+        return UNKNOWN_PHASE_TEMPLATE.format(
+            phase=phase,
+            phases=", ".join(AFTER_APPROVAL_PHASES),
+        )
     round_number = max(state.number_field("Round"), 1)
     slice_number = max(state.number_field("Slice"), 1)
+    playwright_step = ""
+    if state.is_frontend_option_on(PLAYWRIGHT_REVIEWER_OPTION):
+        playwright_step = PLAYWRIGHT_STEP.format(
+            scripts=SCRIPTS_PATH,
+            ticket=state.field("Ticket"),
+            round=round_number,
+        )
     instruction = template.format(
         scripts=SCRIPTS_PATH,
         ticket=state.field("Ticket"),
@@ -92,6 +113,8 @@ def next_step(state: FeatureState) -> str:
         round=round_number,
         next_round=round_number + 1,
         max_rounds=MAX_BEATRICE_ROUNDS,
+        after_review=state.phase_after_review(),
+        playwright=playwright_step,
     )
     return f"Phase: {phase}. {instruction}"
 

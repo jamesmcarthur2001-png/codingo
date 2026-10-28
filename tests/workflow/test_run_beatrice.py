@@ -36,7 +36,7 @@ BLOCK_OUTPUT = """Review text the command prints.
 
 ```beatrice-findings
 {"file": "services/evermore/app/export.py", "line": 40, "rule": "PY-23", "finding": "truthy check on a list"}
-{"file": "/work/repo/.worktrees/BTRC-1234/services/evermore/app/export.py", "line": 61, "rule": "", "finding": "missing test"}
+{"file": "/work/repo/.claude/worktrees/BTRC-1234-csv-export/services/evermore/app/export.py", "line": 61, "rule": "", "finding": "missing test"}
 ```
 """
 TABLE_OUTPUT = """## Findings
@@ -124,7 +124,7 @@ def test_parse_findings_reads_only_known_rule_prefixes():
 
 
 def test_parse_findings_prefers_the_findings_block_and_strips_the_worktree():
-    findings = parse_findings(BLOCK_OUTPUT, Path("/work/repo/.worktrees/BTRC-1234"))
+    findings = parse_findings(BLOCK_OUTPUT, Path("/work/repo/.claude/worktrees/BTRC-1234-csv-export"))
 
     assert [(finding.file, finding.line, finding.rule) for finding in findings] == [
         ("services/evermore/app/export.py", 40, "PY-23"),

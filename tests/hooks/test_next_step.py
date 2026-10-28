@@ -228,8 +228,15 @@ def test_next_step_phases_match_feature_command():
         'python3 "$HOME/.claude/midnight-workflow/scripts/gate_a.py" <Ticket>',
         'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" <Ticket> <Round>',
         'python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>',
-        "keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: FINISH`",
+        "keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
         "If `review/triage.md` already has `## Round <Round>`",
+        'python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" capture <Ticket> <Round>',
+        'python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" playwright-needed <Ticket> <Round>',
+        'python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket>',
+        "The `conventions-reviewer` agent",
+        "The `playwright-reviewer` agent",
+        "| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |",
+        "docs/features/<Ticket>/video/<Ticket>.webm",
     ],
 )
 def test_next_step_feature_command_holds_the_steps_the_hook_names(fragment: str):
@@ -246,3 +253,50 @@ def test_next_step_gate_b_text_matches_the_round_five_rule(tmp_path: Path, make_
     assert "keep `Round: 5`, `Phase: GATE-A`" in reason
     assert "already has `## Round 5`" in reason
     assert 'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" BTRC-1234 5' in reason
+
+
+def set_frontend(feature_directory: Path, *option_lines: str):
+    state_path = feature_directory / "state.md"
+    frontend_section = "## Frontend\n" + "\n".join(option_lines) + "\n\n## Log"
+    state_text = state_path.read_text(encoding="utf-8").replace("## Log", frontend_section)
+    state_path.write_text(state_text, encoding="utf-8")
+
+
+def test_next_step_phases_match_feature_state():
+    from feature_state import AFTER_APPROVAL_PHASES
+    from next_step import STEP_TEMPLATES
+
+    assert tuple(STEP_TEMPLATES) == AFTER_APPROVAL_PHASES
+
+
+def test_next_step_gate_b_names_the_parallel_reviewers(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    make_feature_state(tmp_path, phase="GATE-B")
+
+    reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
+
+    assert "run_beatrice.py\" BTRC-1234 1` in the background" in reason
+    assert "`conventions-reviewer` agent" in reason
+    assert "review_round.py\" capture BTRC-1234 1" in reason
+    assert "playwright-reviewer" not in reason
+    assert "no `fix` rows → `Phase: FINISH`" in reason
+
+
+def test_next_step_gate_b_with_playwright_and_video_names_them(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    feature_directory = make_feature_state(tmp_path, phase="GATE-B")
+    set_frontend(feature_directory, "- Playwright reviewer: yes", "- Video: yes")
+
+    reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
+
+    assert "`playwright-reviewer` agent" in reason
+    assert "review_round.py\" playwright-needed BTRC-1234 1` prints yes" in reason
+    assert "no `fix` rows → `Phase: VIDEO`" in reason
+
+
+def test_next_step_video_phase_never_blocks_on_failure(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    make_feature_state(tmp_path, phase="VIDEO")
+
+    reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
+
+    assert "docs/features/BTRC-1234/video/BTRC-1234.webm" in reason
+    assert "never write BLOCKED for this" in reason
+    assert "`Phase: FINISH`" in reason

@@ -52,10 +52,14 @@ TEST_PATH_PATTERN = re.compile(
 )
 TRIAGE_MIN_CELLS = 7
 TRIAGE_ID_CELL = 0
-TRIAGE_LOCATION_CELL = 2
-TRIAGE_RULE_CELL = 3
-TRIAGE_DECISION_CELL = 5
-TRIAGE_REASON_CELL = 6
+SOURCED_TRIAGE_CELLS = 8
+TRIAGE_CELLS_BY_LAYOUT = {
+    "sourced": {"source": 1, "location": 3, "rule": 4, "decision": 6, "reason": 7},
+    "plain": {"source": -1, "location": 2, "rule": 3, "decision": 5, "reason": 6},
+}
+BEATRICE_SOURCE = "beatrice"
+REVIEW_SOURCES = ("beatrice", "conventions", "playwright")
+SOURCE_BY_ID_PREFIX = {"R": "beatrice", "C": "conventions", "P": "playwright"}
 DISMISS_DECISION = "dismiss"
 DISMISSED_FILE_NAME = "dismissed.json"
 TRIAGE_FILE_NAME = "triage.md"
@@ -67,7 +71,7 @@ REVIEW_DIRECTORY_NAME = "review"
 @dataclass(frozen=True)
 class Dismissal:
     """
-    A Beatrice finding the orchestrator dismissed, keyed by file, rule and the flagged line's text as it was when Beatrice flagged it.
+    A review finding the orchestrator dismissed, keyed by its source, file, rule and the flagged line's text as it was when it was flagged.
     """
     file: str
     rule: str
@@ -75,16 +79,20 @@ class Dismissal:
     round: int
     reason: str
     finding_id: str = ""
+    source: str = BEATRICE_SOURCE
 
-    def matches(self, file: str, rule: str, line_text: str) -> bool:
+    def matches(self, file: str, rule: str, line_text: str, source: str = BEATRICE_SOURCE) -> bool:
         """
         Tell whether a new finding is the same as this dismissed one.
 
         :param file: The new finding's file.
         :param rule: The new finding's rule (may be empty).
         :param line_text: The text of the flagged line.
-        :return: Whether file and line text match, and the rules match when both have one.
+        :param source: Who reported the new finding (beatrice, conventions, playwright); memories are per source.
+        :return: Whether source, file and line text match, and the rules match when both have one.
         """
+        if self.source != source:
+            return False
         if self.line_text == "" or normalize_path(file) != normalize_path(self.file):
             return False
         if line_text.strip() != self.line_text:
@@ -116,28 +124,47 @@ def review_directory(feature_directory: Path) -> Path:
 
 def load_round_findings(feature_directory: Path, round_number: int) -> dict[str, dict[str, object]]:
     """
-    Read the findings run_beatrice.py stored for a round, with the flagged line text captured when it ran.
+    Read the findings stored for a round by run_beatrice.py and review_round.py, with the flagged line text captured then.
 
     :param feature_directory: The feature's directory.
-    :param round_number: The Beatrice round.
-    :return: Finding id (e.g. `R2-3`) to its record; empty when the round has no record file.
+    :param round_number: The review round.
+    :return: Finding id (e.g. `R2-3`, `C2-1`, `P2-4`) to its record; empty when the round has no record files.
     """
-    path = review_directory(feature_directory) / f"beatrice-{round_number}.json"
-    if not path.is_file():
-        return {}
-    records = json.loads(path.read_text(encoding="utf-8"))
-    return {
-        str(record["id"]): record
-        for record in records
-        if isinstance(record, dict) and "id" in record
-    }
+    findings: dict[str, dict[str, object]] = {}
+    for review_source in REVIEW_SOURCES:
+        path = review_directory(feature_directory) / f"{review_source}-{round_number}.json"
+        if not path.is_file():
+            continue
+
+        for record in json.loads(path.read_text(encoding="utf-8")):
+            if isinstance(record, dict) and "id" in record:
+                findings[str(record["id"])] = record
+
+    return findings
+
+
+def triage_source(cells: list[str], source_cell: int, finding_id: str) -> str:
+    """
+    Read which reviewer a triage row is about.
+
+    :param cells: The row's cells.
+    :param source_cell: The Source column, or -1 for the old layout without one.
+    :param finding_id: The row's finding id, whose prefix also names the source.
+    :return: beatrice, conventions or playwright.
+    """
+    if source_cell >= 0:
+        named_source = cells[source_cell].strip("`").lower()
+        if named_source in REVIEW_SOURCES:
+            return named_source
+    return SOURCE_BY_ID_PREFIX.get(finding_id[:1].upper(), BEATRICE_SOURCE)
 
 
 def parse_triage(triage_text: str, feature_directory: Path, code_root: Path) -> list[Dismissal]:
     """
     Read the dismissed findings from review/triage.md.
 
-    :param triage_text: The triage file. Rows: `| # | Marks | File:line | Rule | Finding | Decision | Reason |`, under `## Round <n>`.
+    :param triage_text: The triage file. Rows: `| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |` under `## Round <n>`
+        (rows without the Source column are read as Beatrice's).
     :param feature_directory: The feature's directory, holding the rounds' finding records.
     :param code_root: Where the flagged files live, for rows whose id isn't in a record.
     :return: One dismissal per `dismiss` row; the line text comes from the round's record when the id is there.
@@ -156,14 +183,20 @@ def parse_triage(triage_text: str, feature_directory: Path, code_root: Path) -> 
         if not triage_line.strip().startswith("|") or len(cells) < TRIAGE_MIN_CELLS:
             continue
 
-        if not cells[TRIAGE_DECISION_CELL].lower().startswith(DISMISS_DECISION):
+        layout = TRIAGE_CELLS_BY_LAYOUT["sourced" if len(cells) >= SOURCED_TRIAGE_CELLS else "plain"]
+        if not cells[layout["decision"]].lower().startswith(DISMISS_DECISION):
             continue
 
-        reason = cells[TRIAGE_REASON_CELL]
-        decision_reason = cells[TRIAGE_DECISION_CELL].partition(":")[2].strip()
+        reason = cells[layout["reason"]]
+        decision_reason = cells[layout["decision"]].partition(":")[2].strip()
         if reason == "" and decision_reason != "":
             reason = decision_reason
         finding_id = cells[TRIAGE_ID_CELL].strip("`")
+        review_source = triage_source(
+            cells,
+            layout["source"],
+            finding_id,
+        )
         record = round_findings.get(finding_id)
         if record is not None:
             dismissals.append(
@@ -174,18 +207,19 @@ def parse_triage(triage_text: str, feature_directory: Path, code_root: Path) -> 
                     round_number,
                     reason,
                     finding_id,
+                    review_source,
                 ),
             )
             continue
 
-        location = LOCATION_PATTERN.search(cells[TRIAGE_LOCATION_CELL])
+        location = LOCATION_PATTERN.search(cells[layout["location"]])
         if location is None:
             continue
 
         dismissals.append(
             Dismissal(
                 normalize_path(location.group("path")),
-                cells[TRIAGE_RULE_CELL].strip("`"),
+                cells[layout["rule"]].strip("`"),
                 read_line_text(
                     code_root,
                     location.group("path"),
@@ -194,6 +228,7 @@ def parse_triage(triage_text: str, feature_directory: Path, code_root: Path) -> 
                 round_number,
                 reason,
                 finding_id,
+                review_source,
             ),
         )
 
@@ -216,7 +251,7 @@ def is_stored(dismissal: Dismissal, dismissed: list[Dismissal]) -> bool:
         if dismissal.finding_id != "" and (known.round, known.finding_id) == (dismissal.round, dismissal.finding_id):
             return True
 
-        is_same_key = (known.file, known.rule, known.line_text) == (dismissal.file, dismissal.rule, dismissal.line_text)
+        is_same_key = (known.source, known.file, known.rule, known.line_text) == (dismissal.source, dismissal.file, dismissal.rule, dismissal.line_text)
         if is_same_key:
             return True
 
@@ -254,12 +289,19 @@ def sync_dismissed(state: FeatureState) -> list[Dismissal]:
     return dismissed
 
 
-def find_dismissal(dismissed: list[Dismissal], file: str, rule: str, line_text: str) -> Dismissal | None:
+def find_dismissal(
+    dismissed: list[Dismissal],
+    file: str,
+    rule: str,
+    line_text: str,
+    source: str = BEATRICE_SOURCE,
+) -> Dismissal | None:
     for dismissal in dismissed:
         if dismissal.matches(
             file,
             rule,
             line_text,
+            source,
         ):
             return dismissal
 
@@ -482,12 +524,13 @@ def record_gate_result(state: FeatureState, passed: bool) -> str:
     state.set_field("Round", str(round_number))
     is_last_round_done = round_number >= MAX_BEATRICE_ROUNDS and is_round_triaged(state.feature_directory, round_number)
     if is_last_round_done:
-        state.set_field("Phase", "FINISH")
+        next_phase = state.phase_after_review()
+        state.set_field("Phase", next_phase)
         state.log(
             f"Gate A passed after the fixes of Beatrice round {round_number}, the last one",
         )
         state.save()
-        return f"Gate A passed. Round {round_number} was the last Beatrice round: Phase is now FINISH."
+        return f"Gate A passed. Round {round_number} was the last review round: Phase is now {next_phase}."
     state.set_field("Phase", "GATE-B")
     state.log(
         f"Gate A passed before Beatrice round {round_number}",

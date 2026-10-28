@@ -59,6 +59,23 @@ Go through every item and mark it covered or N/A. Group related items into one r
 - [ ] Missing tooling from `context.md`: add it as part of this feature, or skip that check?
 - [ ] Git: anything beyond the defaults (one branch per BTRC-n, finished by `finish_branch.py`)
 
+## Frontend scope
+Only when state.md's `## Frontend` says `- Touches frontend: yes`. Add these to the **first** batch, each with a recommendation, opening with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
+
+| Option | Question | Recommendation |
+|---|---|---|
+| `Playwright reviewer` | "Run a Playwright reviewer that opens the app and checks the new behaviour, alongside Beatrice?" | Yes |
+| `Video` | "Record a video of the new behaviour at the end?" | Yes when the change is visible to users, else no |
+| `HTML preview` | "See an HTML preview of how it will look before I write the spec?" Ask **only** for new views, dialogs or layout changes; otherwise write `- HTML preview: no` without asking. | Yes for a new view or dialog |
+
+If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the `service-map` skill and the frontend's `package.json`, and recommend one:
+- `Dev server`: the command and its folder, e.g. `npm run dev` in `frontend/`.
+- `App URL`: e.g. `http://localhost:5173`.
+- `Backend`: `mocked` (Playwright `page.route()` mocks, as in `browser-test-conventions`; recommended, it needs nothing running) or `docker` (the branch's local stack, `docker compose -p <Compose project>`).
+- `Login`: the test user, if the app needs one, and where its password comes from. Test credentials come **only** from the project's seed or fixture files (record the file path, e.g. `- Login: admin@example.test (password: services/evermore/tests/seed/users.py)`) or from the user. Never write a password the user typed into state.md or any file; the orchestrator passes it to the reviewer in its prompt.
+
+When `HTML preview` is yes, the mockups (the `html-mockups` skill) are shown to the user in the following rounds, and their changes are part of the grill.
+
 ## Readback
 When no unknown is left, write a **readback** of 5–8 bullets: what will be built, what won't, and the riskiest decision, each pointing to the R-n it comes from. Ask one final question: "Is this what you want?" with the options "Yes, write the spec (Recommended)" and "No, I'll correct it". Loop until the user confirms.
 

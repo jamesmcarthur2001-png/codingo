@@ -44,6 +44,16 @@ def test_hooks_snippet_uses_python3_and_existing_scripts():
         assert (REPO_DIRECTORY / "scripts" / script_path).is_file(), script_path
 
 
+def test_install_lists_every_agent_the_feature_command_uses():
+    install_script = (REPO_DIRECTORY / "install.sh").read_text(encoding="utf-8")
+    feature_command = (REPO_DIRECTORY / "commands" / "feature.md").read_text(encoding="utf-8")
+
+    for agent_name in ("explorer", "conventions-reviewer", "playwright-reviewer"):
+        assert f"`{agent_name}`" in feature_command
+        assert f"{agent_name}.md" in install_script
+        assert (REPO_DIRECTORY / "agents" / f"{agent_name}.md").is_file()
+
+
 def test_hooks_snippet_guard_branch_timeout_is_below_its_fetch_budget():
     snippet = json.loads(HOOKS_SNIPPET.read_text(encoding="utf-8"))
 
@@ -114,6 +124,11 @@ def test_install_twice_then_uninstall_restores_the_user_files(tmp_path: Path):
     assert (claude_directory / "commands" / "feature.md").is_file()
     assert (claude_directory / "agents" / "explorer.md").is_file()
     assert not (claude_directory / "agents" / "review-bugs.md").exists()
+    assert (claude_directory / "agents" / "conventions-reviewer.md").is_file()
+    assert (claude_directory / "agents" / "playwright-reviewer.md").is_file()
+    assert (claude_directory / "skills" / "html-mockups" / "templates" / "mockup.html").is_file()
+    assert (claude_directory / "midnight-workflow" / "scripts" / "worktree.py").is_file()
+    assert (claude_directory / "midnight-workflow" / "scripts" / "review_round.py").is_file()
     assert os.access(installed_script, os.X_OK)
     assert settings["model"] == "local"
     assert len(hook_commands(settings["hooks"])) == 5

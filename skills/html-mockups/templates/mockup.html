@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup: SCREEN NAME (BTRC-0000)</title>
+<style>
+  :root {
+    --font: Roboto, "Segoe UI", Arial, sans-serif;
+    --radius: 4px;
+    --surface: #ffffff;
+    --background: #f5f5f5;
+    --on-surface: rgba(0, 0, 0, 0.87);
+    --muted: rgba(0, 0, 0, 0.6);
+    --border: rgba(0, 0, 0, 0.12);
+    --primary: #1976d2;
+    --on-primary: #ffffff;
+    --error: #b00020;
+    --success: #2e7d32;
+    --snackbar: #323232;
+    --on-snackbar: #ffffff;
+    --shadow: 0 2px 1px -1px rgba(0,0,0,.2), 0 1px 1px 0 rgba(0,0,0,.14), 0 1px 3px 0 rgba(0,0,0,.12);
+  }
+  body { margin: 0; font-family: var(--font); }
+  .page { min-height: 100vh; background: var(--background); color: var(--on-surface); }
+  .page:has(#theme-dark:checked) {
+    --surface: #212121;
+    --background: #121212;
+    --on-surface: rgba(255, 255, 255, 0.87);
+    --muted: rgba(255, 255, 255, 0.6);
+    --border: rgba(255, 255, 255, 0.12);
+    --primary: #2196f3;
+    --error: #cf6679;
+    --success: #66bb6a;
+  }
+  .page:has(#direction-rtl:checked) .app { direction: rtl; }
+  .controls { display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 16px; font-size: 0.8rem; background: var(--surface); border-block-end: 1px solid var(--border); }
+  .controls fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; margin: 0; }
+  .app { padding: 24px; }
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-block-end: 16px; }
+  .toolbar h1 { font-size: 1.25rem; font-weight: 500; margin: 0; flex-grow: 1; }
+  .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+  .btn { font: 500 0.875rem var(--font); letter-spacing: 0.09em; text-transform: uppercase; border: none; border-radius: var(--radius); padding: 8px 16px; background: var(--primary); color: var(--on-primary); }
+  .btn.text { background: transparent; color: var(--primary); }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-block-end: 12px; }
+  .field label { font-size: 0.75rem; color: var(--muted); }
+  .field input { font: 1rem var(--font); color: var(--on-surface); background: transparent; border: none; border-block-end: 1px solid var(--muted); padding: 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  th { text-align: start; color: var(--muted); font-weight: 500; padding: 12px 16px; border-block-end: 1px solid var(--border); }
+  td { padding: 12px 16px; border-block-end: 1px solid var(--border); }
+  .chip { display: inline-block; padding: 2px 12px; border-radius: 16px; font-size: 0.75rem; border: 1px solid var(--border); }
+  .state { display: none; }
+  .page:has(#state-content:checked) .state-content,
+  .page:has(#state-empty:checked) .state-empty,
+  .page:has(#state-loading:checked) .state-loading,
+  .page:has(#state-error:checked) .state-error { display: block; }
+  .message { text-align: center; color: var(--muted); padding: 48px 16px; }
+  .spinner { width: 32px; height: 32px; margin: 48px auto; border: 3px solid var(--border); border-block-start-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .snackbar { position: fixed; inset-block-end: 24px; inset-inline-start: 50%; transform: translateX(-50%); background: var(--snackbar); color: var(--on-snackbar); padding: 14px 16px; border-radius: var(--radius); }
+  .page:has(#direction-rtl:checked) .snackbar { transform: translateX(50%); }
+  .open-question { border: 2px dashed var(--error); border-radius: var(--radius); padding: 8px; margin-block: 12px; color: var(--error); font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="controls">
+    <fieldset><legend>Theme</legend>
+      <label><input type="radio" name="theme" id="theme-light" checked> light</label>
+      <label><input type="radio" name="theme" id="theme-dark"> dark</label>
+    </fieldset>
+    <fieldset><legend>Direction</legend>
+      <label><input type="radio" name="direction" id="direction-ltr" checked> LTR</label>
+      <label><input type="radio" name="direction" id="direction-rtl"> RTL</label>
+    </fieldset>
+    <fieldset><legend>State</legend>
+      <label><input type="radio" name="state" id="state-content" checked> content</label>
+      <label><input type="radio" name="state" id="state-empty"> empty</label>
+      <label><input type="radio" name="state" id="state-loading"> loading</label>
+      <label><input type="radio" name="state" id="state-error"> error</label>
+    </fieldset>
+  </div>
+
+  <main class="app">
+    <div class="toolbar">
+      <h1>SCREEN TITLE</h1>
+      <button class="btn text" type="button">Cancel</button>
+      <button class="btn" type="button">Primary action</button>
+    </div>
+
+    <section class="card">
+      <div class="field"><label for="search">Search</label><input id="search" value=""></div>
+
+      <div class="state state-content">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Pump 7</td><td>Mechanical</td><td><span class="chip">Active</span></td></tr>
+            <tr><td>Panel 2</td><td>Electrical</td><td><span class="chip">Retired</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="state state-empty"><p class="message">No entities yet. Create one to see it here.</p></div>
+      <div class="state state-loading"><div class="spinner" role="progressbar" aria-label="Loading"></div></div>
+      <div class="state state-error"><p class="message">Couldn't load the entities.</p></div>
+
+      <div class="open-question">Open: WHAT IS STILL UNDECIDED (R-n)</div>
+    </section>
+  </main>
+
+  <div class="state state-error"><div class="snackbar">Couldn't load the entities. Try again.</div></div>
+</div>
+</body>
+</html>

@@ -96,3 +96,33 @@ def test_find_active_feature_from_subdirectory_returns_feature(tmp_path: Path, m
     active = find_active_feature(subdirectory)
 
     assert active == feature_directory
+
+
+def test_feature_state_frontend_options_and_the_phase_after_review(tmp_path: Path, make_feature_state: Callable[..., Path]):
+    state = load_feature_state("BTRC-1234", make_feature_state(tmp_path))
+    state.append_to_section("Frontend", "- Playwright reviewer: yes (recommended)")
+    state.append_to_section("Frontend", "- Video: no")
+    state.append_to_section("Frontend", "- App URL: http://localhost:5173")
+
+    assert state.is_frontend_option_on("Playwright reviewer")
+    assert not state.is_frontend_option_on("Video")
+    assert state.frontend_option("app url") == "http://localhost:5173"
+    assert state.frontend_option("Backend") == ""
+    assert state.phase_after_review() == "FINISH"
+
+
+def test_feature_state_video_yes_reviews_lead_to_video(tmp_path: Path, make_feature_state: Callable[..., Path]):
+    state = load_feature_state("BTRC-1234", make_feature_state(tmp_path))
+    state.append_to_section("Frontend", "- Video: yes")
+
+    assert state.phase_after_review() == "VIDEO"
+
+
+def test_feature_state_worktree_mode_none_means_no_worktree(tmp_path: Path, make_feature_state: Callable[..., Path]):
+    state = load_feature_state("BTRC-1234", make_feature_state(tmp_path))
+    uses_by_default = state.uses_worktree()
+    state.set_field("Worktree mode", "none")
+
+    assert uses_by_default
+    assert not state.uses_worktree()
+    assert state.code_root() == tmp_path

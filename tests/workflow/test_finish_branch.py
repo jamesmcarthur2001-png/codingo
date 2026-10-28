@@ -10,6 +10,7 @@ import finish_branch
 from conftest import FakeCommands, failed, git, ok
 from feature_state import FeatureState
 from finish_branch import failed_job_name, parse_pipeline_state
+from worktree import create_worktree
 
 HEAD = "abc1234def5678"
 PIPELINE_PASSED = "(success) build\nPipeline state: success\n"
@@ -58,13 +59,12 @@ def finish_setup(tmp_path: Path, make_feature_state: Callable[..., Path], monkey
     commit_files(repository, {"README.md": "# repo\n", **TWO_FILE_BASE}, "initial")
     git(repository, "remote", "add", "origin", str(remote))
     git(repository, "push", "--quiet", "origin", "master")
-    (repository / ".git" / "info" / "exclude").write_text("docs/features/\n.worktrees/\n", encoding="utf-8")
-    git(repository, "worktree", "add", "--quiet", "-b", BRANCH, ".worktrees/BTRC-1234", "master")
-    worktree = repository / ".worktrees" / "BTRC-1234"
-    feature_directory = make_feature_state(repository, phase="FINISH", worktree=".worktrees/BTRC-1234")
+    feature_directory = make_feature_state(repository, phase="FINISH")
     state = FeatureState.load(feature_directory / "state.md")
     state.set_field("Compose files", "docker-compose.yml")
     state.save()
+    create_worktree(state)
+    worktree = repository / ".claude" / "worktrees" / BRANCH
     (feature_directory / "spec.md").write_text("# Spec: CSV export for entities\n", encoding="utf-8")
     (worktree / "export.py").write_text("rows = []\n", encoding="utf-8")
     monkeypatch.chdir(repository)
@@ -281,7 +281,7 @@ def test_finish_branch_missing_worktree_that_was_never_removed_is_an_error(
 ):
     install_tools(fake_commands)
     state = state_of(finish_setup)
-    state.set_field("Worktree", ".worktrees/does-not-exist")
+    state.set_field("Worktree", ".claude/worktrees/does-not-exist")
     state.save()
 
     exit_code = run_finish(monkeypatch)
@@ -327,3 +327,64 @@ def test_failed_job_name_keeps_spaces_inside_the_name():
     job_name = failed_job_name(PIPELINE_FAILED)
 
     assert job_name == "unit tests"
+
+
+def switch_to_main_checkout(setup: FinishSetup) -> FeatureState:
+    changed = (setup.worktree / "export.py").read_text(encoding="utf-8")
+    git(setup.repository, "worktree", "remove", "--force", str(setup.worktree))
+    git(setup.repository, "switch", "--quiet", BRANCH)
+    (setup.repository / "export.py").write_text(changed, encoding="utf-8")
+    state = state_of(setup)
+    state.set_field("Worktree", "")
+    state.set_field("Worktree mode", "none")
+    state.save()
+    return state
+
+
+def test_finish_branch_without_worktree_finishes_in_the_main_checkout(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+    switch_to_main_checkout(finish_setup)
+
+    exit_code = run_finish(monkeypatch)
+
+    finish_lines = state_of(finish_setup).section("Finish")
+    assert exit_code == 0
+    assert "BTRC-1234: CSV export for entities" in remote_log(finish_setup, BRANCH)
+    assert any("no worktree: the feature used the main checkout" in line for line in finish_lines)
+    assert state_of(finish_setup).field("Phase") == "SUMMARY"
+
+
+def test_finish_branch_without_worktree_on_the_wrong_branch_is_a_setup_error(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    commands = install_tools(fake_commands)
+    switch_to_main_checkout(finish_setup)
+    git(finish_setup.repository, "switch", "--quiet", "master")
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 2
+    assert "The main checkout" in capsys.readouterr().out
+    assert not any(command.startswith(("git commit", "git push")) for command in commands.commands())
+
+
+def test_finish_branch_worktree_mode_without_a_worktree_path_is_a_setup_error(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+    state = state_of(finish_setup)
+    state.set_field("Worktree", "")
+    state.save()
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 2
