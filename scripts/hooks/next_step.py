@@ -56,22 +56,20 @@ STEP_TEMPLATES = {
         "and continue; never write BLOCKED for this. Then set `Phase: FINISH`."
     ),
     "FINISH": (
-        "{finish_note}Part (a), inside the worktree: run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background and act on its exit code: "
-        "0 part (a) done (without a worktree it already set SUMMARY); 10 resolve the conflict, git add, run the tests, run it again; "
+        "In the code root (stay in the worktree): run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background and act on its exit code: "
+        "0 done, it set `Phase: SUMMARY` and kept the worktree; 10 resolve the conflict, git add, run the tests, run it again; "
         "20 fix the pipeline, run it again; 30 push rejected, you are blocked; 1 or 2 fix the cause from the message, run it again. "
-        "Then call `ExitWorktree` and, from the main checkout, run `python3 \"{scripts}/finish_branch.py\" {ticket} --cleanup` "
-        "(it brings the feature folder home, removes the worktree, pulls the base and sets `Phase: SUMMARY`)."
+        "Don't call `ExitWorktree`."
     ),
     "SUMMARY": (
-        "Write summary.md (what was built, every review finding of every source and what happened to it, the video, what's left for the user), "
-        "set `Status: DONE` in state.md and delete docs/features/.active."
+        "Write docs/features/{ticket}/summary.md in the worktree (what was built, every review finding of every source and what happened to it, "
+        "the video, what's left for the user, and how to remove the worktree), set `Status: DONE` in state.md and delete the worktree's docs/features/.active. "
+        "Write nothing in the main checkout."
     ),
 }
 PLAYWRIGHT_STEP = (
     ", and the `playwright-reviewer` agent (writes review/playwright-{round}.md) when `python3 \"{scripts}/review_round.py\" playwright-needed {ticket} {round}` prints yes"
 )
-CLEANUP_STAGE = "cleanup"
-FINISH_PART_A_DONE_NOTE = "Part (a) is already done (`Finish stage: cleanup`): skip it. "
 UNKNOWN_PHASE_TEMPLATE = (
     "state.md has `Phase: {phase}`, which has no next step. Set Phase to one of: {phases}, or write `Status: BLOCKED: <reason>`."
 )
@@ -119,7 +117,6 @@ def next_step(state: FeatureState) -> str:
         max_rounds=MAX_BEATRICE_ROUNDS,
         after_review=state.phase_after_review(),
         playwright=playwright_step,
-        finish_note=FINISH_PART_A_DONE_NOTE if state.field("Finish stage") == CLEANUP_STAGE else "",
     )
     return f"Phase: {phase}. {instruction}"
 
@@ -173,7 +170,10 @@ def main() -> int:
     if is_reviewer_session():
         return 0
     payload = read_hook_payload()
-    feature_directory = find_active_feature(Path(str(payload.get("cwd", "."))))
+    feature_directory = find_active_feature(
+        Path(str(payload.get("cwd", "."))),
+        str(payload.get("session_id", "")),
+    )
     if feature_directory is None or not (feature_directory / STATE_FILE_NAME).is_file():
         return 0
     state = FeatureState.load(feature_directory / STATE_FILE_NAME)

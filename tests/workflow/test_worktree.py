@@ -2,10 +2,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import shutil
+
 import pytest
 
 import worktree
-from worktree import bring_feature_home
 from conftest import git
 from feature_state import FeatureState, find_active_feature, find_running_feature, load_feature_state
 from guard_branch import find_branch_changes
@@ -169,15 +170,13 @@ def test_guard_branch_lets_the_script_call_through():
     assert changes == []
 
 
-def test_create_moves_the_feature_folder_into_the_worktree_and_points_at_it(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+def test_create_moves_the_feature_folder_into_the_worktree_and_leaves_nothing_in_main(repository: Repository, monkeypatch: pytest.MonkeyPatch):
     run_main(monkeypatch, "create", "BTRC-1234")
 
     moved = repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
-    main_marker = (repository.root / "docs" / "features" / ".active").read_text(encoding="utf-8")
     assert (moved / "state.md").is_file()
-    assert not (repository.root / "docs" / "features" / "BTRC-1234").exists()
+    assert not (repository.root / "docs" / "features").exists()
     assert (repository.root / WORKTREE / "docs" / "features" / ".active").read_text(encoding="utf-8") == "BTRC-1234\n"
-    assert main_marker.startswith("BTRC-1234\npath: ")
     assert repository.state().field("Repository") == repository.root.resolve().as_posix()
     assert repository.state().code_root().resolve() == (repository.root / WORKTREE).resolve()
 
@@ -225,16 +224,60 @@ def test_create_copies_the_files_worktreeinclude_lists(repository: Repository, m
     assert not (repository.root / WORKTREE / "local.cfg").exists()
 
 
-def test_bring_feature_home_copies_the_folder_back_without_markers(repository: Repository, monkeypatch: pytest.MonkeyPatch):
-    run_main(monkeypatch, "create", "BTRC-1234")
-    moved = repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
-    (moved / "summary-draft.md").write_text("draft\n", encoding="utf-8")
-    (moved / ".running.json").write_text("{}", encoding="utf-8")
+def remove_main_feature(repository: Repository):
+    shutil.rmtree(repository.root / "docs")
 
-    home_state = bring_feature_home(repository.state())
 
-    home = repository.root / "docs" / "features" / "BTRC-1234"
-    assert home_state.feature_directory == home
-    assert (home / "summary-draft.md").is_file()
-    assert not (home / ".running.json").exists()
-    assert (repository.root / "docs" / "features" / ".active").read_text(encoding="utf-8") == "BTRC-1234\n"
+def test_create_new_feature_writes_state_only_in_the_worktree(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    remove_main_feature(repository)
+
+    exit_code = run_main(monkeypatch, "create", "BTRC-1234", "--branch", BRANCH, "--base", "master", "--title", "CSV export")
+
+    state = repository.state()
+    assert exit_code == 0
+    assert state.feature_directory == repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
+    assert state.field("Title") == "CSV export"
+    assert state.field("Worktree") == WORKTREE
+    assert state.field("Repository") == repository.root.resolve().as_posix()
+    assert not (repository.root / "docs").exists()
+
+
+def test_create_new_feature_without_branch_is_a_setup_error(repository: Repository, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    remove_main_feature(repository)
+
+    exit_code = run_main(monkeypatch, "create", "BTRC-1234")
+
+    assert exit_code == 2
+    assert "--branch and --base" in capsys.readouterr().out
+    assert not (repository.root / WORKTREE).exists()
+
+
+def test_create_new_feature_without_worktree_writes_in_the_main_checkout(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    remove_main_feature(repository)
+
+    exit_code = run_main(monkeypatch, "create", "BTRC-1234", "--branch", BRANCH, "--base", "master", "--no-worktree")
+
+    assert exit_code == 0
+    assert (repository.root / "docs" / "features" / "BTRC-1234" / "state.md").is_file()
+    assert git(repository.root, "branch", "--show-current").strip() == BRANCH
+
+
+def test_two_worktree_features_each_find_their_own_folder(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    remove_main_feature(repository)
+    other_branch = "BTRC-77-other"
+    run_main(monkeypatch, "create", "BTRC-1234", "--branch", BRANCH, "--base", "master")
+    run_main(monkeypatch, "create", "BTRC-77", "--branch", other_branch, "--base", "master")
+    other = load_feature_state("BTRC-77", repository.root)
+    other.set_field("Session", "session-77")
+    other.save()
+
+    from_first = find_active_feature(repository.root / WORKTREE)
+    from_second = find_active_feature(repository.root / ".claude" / "worktrees" / other_branch)
+    from_main_for_second = find_active_feature(repository.root, "session-77")
+    from_main_unknown = find_active_feature(repository.root)
+
+    assert from_first == repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
+    assert from_second == repository.root / ".claude" / "worktrees" / other_branch / "docs" / "features" / "BTRC-77"
+    assert from_main_for_second == from_second
+    assert from_main_unknown is None
+    assert not (repository.root / "docs").exists()

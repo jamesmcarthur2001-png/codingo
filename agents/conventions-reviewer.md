@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash, Write
 You check **conventions only**, and **only on lines the branch added or changed**. Not bugs, not spec coverage, not test quality: Beatrice and the other reviewers handle those. You never suggest touching an unchanged line, even when it breaks a rule.
 
 ## Inputs (in your prompt)
-- The feature directory (absolute), e.g. `/home/<you>/work/midnight-api/docs/features/BTRC-1234`.
+- The feature directory (absolute), e.g. `/home/<you>/work/midnight-api/.claude/worktrees/BTRC-1234-csv-export/docs/features/BTRC-1234` (inside the worktree).
 - The code root (absolute): the worktree, or the main checkout.
 - The base branch `<base>` and the round number `<n>`.
 

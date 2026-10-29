@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Gate B: runs the team leader's Beatrice review command, unchanged, in two parallel read-only `claude -p` sessions and merges their findings.
+Gate B: runs the team leader's Beatrice review skill, unchanged, in two parallel read-only `claude -p` sessions and merges their findings.
+
+The prompt only asks her to review the branch with the skill and write down her comments: no feature description, no format
+instructions. Each session is a full Claude Code session, so the skill starts as many subagents as it wants; nothing limits them.
 
 Usage: python3 run_beatrice.py BTRC-1234 <round>
 Writes review/beatrice-<round>-a.md, -b.md (raw), review/beatrice-<round>.md (merged, marked 2/2 or 1/2)
@@ -8,7 +11,7 @@ and review/beatrice-<round>.json (the same findings, with each flagged line's te
 Exit codes: 0 at least one run finished, 1 both runs failed twice, 2 setup error (no feature, or another long step is running).
 
 :author: midnight-workflow
-:date: 28/10/2026
+:date: 29/10/2026
 """
 # ----- Imports ----- #
 
@@ -32,32 +35,24 @@ SETUP_ERROR_EXIT_CODE = 2
 RUN_TIMEOUT_SECONDS = 30 * 60
 RUN_ATTEMPTS = 2
 RUN_LABELS = ("a", "b")
-DEFAULT_COMMAND_NAME = "beatrice-code-review"
+DEFAULT_SKILL_NAME = "beatrice-code-review"
+SKILL_FILE_NAME = "SKILL.md"
+SKILLS_DIRECTORY = Path(".claude") / "skills"
+REVIEW_PROMPT = "Use the `{skill}` skill to review the branch {branch} against {base}. Write down your comments."
+OUTSIDE_SKILL_PROMPT = "Follow the review skill in {skill_file} to review the branch {branch} against {base}. Write down your comments."
 DEFAULT_ALLOWED_TOOLS = (
-    "Read,Grep,Glob,Agent,"
+    "Read,Grep,Glob,Agent,Skill,"
     "Bash(git diff:*),Bash(git log:*),Bash(git show:*),"
     "Bash(glab mr view:*),Bash(glab mr diff:*),"
     "Bash(npx nx lint:*),Bash(npx nx typecheck:*),Bash(npx nx test:*)"
 )
 DISALLOWED_TOOLS = "Edit,Write,MultiEdit,NotebookEdit"
-SLASH_MODE = "slash"
-FILE_MODE = "file"
-UNKNOWN_COMMAND_MARKERS = ("unknown command", "unknown slash command")
 FINDINGS_BLOCK_NAME = "beatrice-findings"
-FINDINGS_BLOCK_INSTRUCTION = (
-    "When your review is complete, end your final answer with a fenced code block whose info string is "
-    f"`{FINDINGS_BLOCK_NAME}`. Put one JSON object per line in it, one per finding: "
-    '{"file": "<path relative to the repository root>", "line": <line number or 0>, "rule": "<rule id or empty>", '
-    '"finding": "<one sentence>"}. Write the block even when there are no findings (then leave it empty). '
-    "This block is in addition to your normal review output."
-)
 FINDINGS_BLOCK_PATTERN = re.compile(
     rf"^```{FINDINGS_BLOCK_NAME}[ \t]*\n(?P<body>.*?)^```",
     re.DOTALL | re.MULTILINE,
 )
 FENCE_PREFIX = "```"
-FILE_MODE_RETRY_NOTE = "slash command didn't run as expected; retried with the command file's text"
-FRONTMATTER_PATTERN = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 ITEM_START_PATTERN = re.compile(r"^ ?(?:[-*+]\s+|\d+[.)]\s+)")
 HEADING_PATTERN = re.compile(r"^#{1,6}\s+(?P<title>.+)$")
 NUMBERED_HEADING_PATTERN = re.compile(r"^\d+[.)]\s")
@@ -134,47 +129,79 @@ class RunResult:
 # ----- Functions ----- #
 
 
-def command_file_prompt(state: FeatureState) -> str | None:
+class SkillNotFoundError(Exception):
     """
-    Build the file-mode prompt: the text of Beatrice's command file, with $ARGUMENTS set to the base.
+    Raised when Beatrice's skill can't be found; the message lists where it was looked for.
+    """
+    pass
 
-    :param state: The feature's state, with `Base:` and `Beatrice command:`.
-    :return: The prompt, or None when the command file can't be read.
+
+def skill_candidates(state: FeatureState) -> list[Path]:
     """
-    command_path = Path(state.field("Beatrice command")).expanduser()
-    if state.field("Beatrice command") == "" or not command_path.is_file():
-        return None
-    command_text = FRONTMATTER_PATTERN.sub(
-        "",
-        command_path.read_text(encoding="utf-8").replace("\r\n", "\n"),
-        count=1,
+    List where Beatrice's SKILL.md may be: the `Beatrice skill:` field, else the repo's and the user's skills folders.
+
+    :param state: The feature's state.
+    :return: The SKILL.md paths to try, in order.
+    """
+    configured = state.field("Beatrice skill")
+    if configured != "":
+        configured_path = Path(configured).expanduser()
+        return [configured_path if configured_path.name == SKILL_FILE_NAME else configured_path / SKILL_FILE_NAME]
+    relative_skill = SKILLS_DIRECTORY / DEFAULT_SKILL_NAME / SKILL_FILE_NAME
+    return [
+        state.code_root() / relative_skill,
+        state.repository_root / relative_skill,
+        Path.home() / relative_skill,
+    ]
+
+
+def find_skill(state: FeatureState) -> Path:
+    candidates = skill_candidates(state)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+
+    raise SkillNotFoundError(
+        "Beatrice's skill wasn't found. Looked for: " + ", ".join(str(candidate) for candidate in candidates)
+        + ". Set `Beatrice skill: <path to its SKILL.md or folder>` in state.md.",
     )
-    return command_text.replace("$ARGUMENTS", state.field("Base"))
 
 
-def build_prompt(state: FeatureState, mode: str) -> str:
+def is_discovered_skill(skill_file: Path, code_root: Path) -> bool:
     """
-    Build the prompt that starts Beatrice's command, unchanged, on the feature's base branch.
+    Tell whether `claude -p` in the code root loads this skill by itself (project or user skills folder).
 
-    :param state: The feature's state, with `Base:` and `Beatrice command:`.
-    :param mode: `slash` or `file`.
-    :return: `/<command> <base>` in slash mode; the command file's text in file mode (slash form when the file is missing).
+    :param skill_file: Beatrice's SKILL.md.
+    :param code_root: Where the review session runs.
+    :return: Whether the skill sits in `<code root>/.claude/skills/` or `~/.claude/skills/`.
     """
-    command_path = state.field("Beatrice command")
-    command_name = DEFAULT_COMMAND_NAME if command_path == "" else Path(command_path).stem
-    slash_prompt = f"/{command_name} {state.field('Base')}"
-    if mode != FILE_MODE:
-        return slash_prompt
-    file_prompt = command_file_prompt(state)
-    if file_prompt is None:
-        return slash_prompt
-    return file_prompt
+    skill_folder = skill_file.parent.parent
+    discovered_folders = (
+        (code_root / SKILLS_DIRECTORY).resolve(),
+        (Path.home() / SKILLS_DIRECTORY).resolve(),
+    )
+    return skill_folder in discovered_folders
 
 
-def starting_mode(state: FeatureState) -> str:
-    if state.field("Beatrice mode").lower() == FILE_MODE:
-        return FILE_MODE
-    return SLASH_MODE
+def build_prompt(state: FeatureState, skill_file: Path) -> str:
+    """
+    Build the bare review request: review the branch with the skill and write down the comments.
+
+    :param state: The feature's state, with `Branch:` and `Base:`.
+    :param skill_file: Beatrice's SKILL.md.
+    :return: The prompt; it names the skill, or its file when `claude -p` wouldn't load it by itself.
+    """
+    if is_discovered_skill(skill_file, state.code_root()):
+        return REVIEW_PROMPT.format(
+            skill=skill_file.parent.name,
+            branch=state.field("Branch"),
+            base=state.field("Base"),
+        )
+    return OUTSIDE_SKILL_PROMPT.format(
+        skill_file=skill_file,
+        branch=state.field("Branch"),
+        base=state.field("Base"),
+    )
 
 
 def allowed_tools(state: FeatureState) -> str:
@@ -184,8 +211,17 @@ def allowed_tools(state: FeatureState) -> str:
     return tools
 
 
-def build_review_command(prompt: str, tools: str) -> list[str]:
-    return [
+def build_review_command(prompt: str, tools: str, skill_file: Path, code_root: Path) -> list[str]:
+    """
+    Build the read-only `claude -p` command of one Beatrice session.
+
+    :param prompt: The bare review request.
+    :param tools: The allowed tools.
+    :param skill_file: Beatrice's SKILL.md; its folder is added when the session wouldn't see it otherwise.
+    :param code_root: Where the session runs.
+    :return: The command.
+    """
+    command = [
         "claude",
         "-p",
         prompt,
@@ -197,9 +233,10 @@ def build_review_command(prompt: str, tools: str) -> list[str]:
         tools,
         "--disallowedTools",
         DISALLOWED_TOOLS,
-        "--append-system-prompt",
-        FINDINGS_BLOCK_INSTRUCTION,
     ]
+    if not is_discovered_skill(skill_file, code_root):
+        command.extend(["--add-dir", str(skill_file.parent)])
+    return command
 
 
 def read_review_result(stdout: str) -> tuple[str, list[str]] | None:
@@ -228,30 +265,23 @@ def read_review_result(stdout: str) -> tuple[str, list[str]] | None:
     return answer, denied_tools
 
 
-def is_unknown_command(answer: str) -> bool:
-    lowered = answer.lower()
-    return any(marker in lowered for marker in UNKNOWN_COMMAND_MARKERS)
-
-
-def has_findings_block(answer: str) -> bool:
-    return FINDINGS_BLOCK_PATTERN.search(answer) is not None
-
-
-def run_review(state: FeatureState, output_path: Path) -> RunResult:
+def run_review(state: FeatureState, skill_file: Path, output_path: Path) -> RunResult:
     """
-    Run one Beatrice session, retrying once; a slash command claude doesn't run is retried in file mode.
+    Run one Beatrice session, retrying once when it fails.
 
-    :param state: The feature's state (base, command file, tools, worktree).
+    :param state: The feature's state (branch, base, tools, worktree).
+    :param skill_file: Beatrice's SKILL.md.
     :param output_path: Where the run's answer (or error output) goes.
     :return: Whether a run succeeded, how many attempts it took, and notes for the merged file.
     """
-    mode = starting_mode(state)
     notes: list[str] = []
     for attempt in range(1, RUN_ATTEMPTS + 1):
         result = command_runner.run_command(
             build_review_command(
-                build_prompt(state, mode),
+                build_prompt(state, skill_file),
                 allowed_tools(state),
+                skill_file,
+                state.code_root(),
             ),
             state.code_root(),
             RUN_TIMEOUT_SECONDS,
@@ -264,12 +294,6 @@ def run_review(state: FeatureState, output_path: Path) -> RunResult:
 
         answer, denied_tools = review
         output_path.write_text(answer, encoding="utf-8")
-        should_try_file_mode = mode == SLASH_MODE and (is_unknown_command(answer) or not has_findings_block(answer))
-        if should_try_file_mode and attempt < RUN_ATTEMPTS and command_file_prompt(state) is not None:
-            mode = FILE_MODE
-            notes.append(FILE_MODE_RETRY_NOTE)
-            continue
-
         if len(denied_tools) > 0:
             denied_text = ", ".join(sorted(set(denied_tools)))
             notes.append(f"permission denied for: {denied_text}")
@@ -638,12 +662,13 @@ def append_to_beatrice_log(state: FeatureState, merged: list[MergedFinding]):
         log_file.write("\n".join(entries) + "\n\n")
 
 
-def run_both_reviews(state: FeatureState, output_paths: list[Path]) -> list[RunResult]:
+def run_both_reviews(state: FeatureState, skill_file: Path, output_paths: list[Path]) -> list[RunResult]:
     with ThreadPoolExecutor(max_workers=len(RUN_LABELS)) as executor:
         futures = [
             executor.submit(
                 run_review,
                 state,
+                skill_file,
                 output_path,
             )
             for output_path in output_paths
@@ -659,10 +684,19 @@ def run_round(state: FeatureState, round_number: int) -> int:
     :param round_number: The Beatrice round, 1 to 5.
     :return: The exit code.
     """
+    try:
+        skill_file = find_skill(state)
+    except SkillNotFoundError as missing_skill:
+        print(f"Setup error: {missing_skill}")
+        return SETUP_ERROR_EXIT_CODE
     review_path = state.feature_directory / "review"
     review_path.mkdir(parents=True, exist_ok=True)
     output_paths = [review_path / f"beatrice-{round_number}-{label}.md" for label in RUN_LABELS]
-    results = run_both_reviews(state, output_paths)
+    results = run_both_reviews(
+        state,
+        skill_file,
+        output_paths,
+    )
     state.reload()
     run_notes: list[str] = []
     findings_per_run: list[list[Finding]] = []

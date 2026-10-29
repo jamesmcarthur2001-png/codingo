@@ -8,7 +8,7 @@ You explore a monorepo (Vue/Vuetify frontend, FastAPI reverse proxy, a CRUD serv
 
 ## Inputs (in your prompt)
 - The feature description and ticket (e.g. `BTRC-1234`).
-- The feature directory (absolute), e.g. `/home/<you>/work/midnight-api/docs/features/BTRC-1234`.
+- The feature directory (absolute), e.g. `/home/<you>/work/midnight-api/.claude/worktrees/BTRC-1234-csv-export/docs/features/BTRC-1234` (inside the worktree).
 - The code root (absolute): the worktree to read code from.
 - Your number `n` (1, 2 or 3).
 

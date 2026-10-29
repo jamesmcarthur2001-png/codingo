@@ -138,7 +138,10 @@ def main() -> int:
     added_test_names = find_added_test_names(path, source_changes)
     if len(added_test_names) == 0:
         return 0
-    state = find_running_feature(Path(str(payload.get("cwd", "."))))
+    state = find_running_feature(
+        Path(str(payload.get("cwd", "."))),
+        str(payload.get("session_id", "")),
+    )
     if state is None:
         return 0
     test_plan_path = state.feature_directory / TEST_PLAN_FILE_NAME

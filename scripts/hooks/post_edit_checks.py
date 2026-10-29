@@ -97,7 +97,10 @@ def main() -> int:
     edited_path = get_edited_path(payload)
     if edited_path is None or not edited_path.is_file():
         return 0
-    state = find_running_feature(Path(str(payload.get("cwd", "."))))
+    state = find_running_feature(
+        Path(str(payload.get("cwd", "."))),
+        str(payload.get("session_id", "")),
+    )
     if state is None and not checks_forced():
         return 0
     if state is not None and not checks_forced() and not is_inside(edited_path, state.code_root()):

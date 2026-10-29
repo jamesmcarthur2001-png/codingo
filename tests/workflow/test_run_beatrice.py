@@ -83,6 +83,10 @@ def claude_json(answer: str, denials: list[dict[str, object]] | None = None, is_
 @pytest.fixture
 def beatrice_feature(tmp_path: Path, make_feature_state: Callable[..., Path], monkeypatch: pytest.MonkeyPatch) -> Path:
     feature_directory = make_feature_state(tmp_path, phase="GATE-B")
+    skill_folder = tmp_path / ".claude" / "skills" / "beatrice-code-review"
+    skill_folder.mkdir(parents=True)
+    (skill_folder / "SKILL.md").write_text("---\nname: beatrice-code-review\n---\nReview the branch.\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(run_beatrice, "ThreadPoolExecutor", SequentialExecutor)
     return feature_directory
@@ -169,21 +173,46 @@ def test_merge_findings_same_line_different_rules_stay_separate():
     assert [item.marks for item in merged] == ["1/2", "1/2"]
 
 
-def test_build_prompt_slash_mode_runs_command_with_base(beatrice_feature: Path):
-    prompt = run_beatrice.build_prompt(state_of(beatrice_feature), "slash")
-
-    assert prompt == "/beatrice-code-review master"
-
-
-def test_build_prompt_file_mode_passes_command_text(beatrice_feature: Path, tmp_path: Path):
-    command_path = tmp_path / "beatrice-code-review.md"
-    command_path.write_text("---\ndescription: review\n---\nReview the diff against $ARGUMENTS.\n", encoding="utf-8")
+def test_build_prompt_asks_only_to_review_the_branch_with_the_skill(beatrice_feature: Path, tmp_path: Path):
     state = state_of(beatrice_feature)
-    state.set_field("Beatrice command", str(command_path))
 
-    prompt = run_beatrice.build_prompt(state, "file")
+    prompt = run_beatrice.build_prompt(state, run_beatrice.find_skill(state))
 
-    assert prompt == "Review the diff against master.\n"
+    assert prompt == "Use the `beatrice-code-review` skill to review the branch BTRC-1234-csv-export against master. Write down your comments."
+    assert state.field("Title") not in prompt
+
+
+def test_build_prompt_skill_outside_the_skills_folders_names_its_file(beatrice_feature: Path, tmp_path: Path):
+    skill_file = tmp_path / "team" / "beatrice" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("Review.\n", encoding="utf-8")
+    state = state_of(beatrice_feature)
+    state.set_field("Beatrice skill", str(skill_file.parent))
+
+    prompt = run_beatrice.build_prompt(state, run_beatrice.find_skill(state))
+    command = run_beatrice.build_review_command(prompt, "Read", skill_file, state.code_root())
+
+    assert prompt.startswith(f"Follow the review skill in {skill_file}")
+    assert command[-2:] == ["--add-dir", str(skill_file.parent)]
+
+
+def test_run_round_without_the_skill_is_a_setup_error_naming_the_paths(
+    beatrice_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+):
+    (tmp_path / ".claude" / "skills" / "beatrice-code-review" / "SKILL.md").unlink()
+    commands = fake_commands(False)
+
+    exit_code = run_main(monkeypatch, 1)
+
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert "Beatrice's skill wasn't found" in output
+    assert "beatrice-code-review/SKILL.md" in output
+    assert claude_calls(commands) == []
 
 
 def test_run_round_two_read_only_runs_merge_into_round_file(
@@ -204,6 +233,7 @@ def test_run_round_two_read_only_runs_merge_into_round_file(
     assert all("--disallowedTools Edit,Write,MultiEdit,NotebookEdit" in command_text for command_text, _, _ in calls)
     assert all("--permission-mode default" in command_text for command_text, _, _ in calls)
     assert all("Bash(glab mr:*)" not in command_text and "Bash(glab mr view:*)" in command_text for command_text, _, _ in calls)
+    assert all("Agent,Skill" in command_text and "--append-system-prompt" not in command_text for command_text, _, _ in calls)
     assert "| 2/2 | services/evermore/app/export.py:40 | PY-23" in merged_text
     assert (beatrice_feature / "review" / "beatrice-1.json").is_file()
     assert (beatrice_feature / "beatrice-log.md").is_file()
@@ -228,34 +258,6 @@ def test_run_round_error_result_is_retried_once(
     assert exit_code == 0
     assert len(claude_calls(commands)) == 3
     assert "after a retry" in state_of(beatrice_feature).path.read_text(encoding="utf-8")
-
-
-def test_run_round_unknown_slash_command_retries_with_the_command_file(
-    beatrice_feature: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    fake_commands: Callable[[bool], FakeCommands],
-    tmp_path: Path,
-):
-    command_path = tmp_path / "beatrice-code-review.md"
-    command_path.write_text("Review the diff against $ARGUMENTS.\n", encoding="utf-8")
-    state = state_of(beatrice_feature)
-    state.set_field("Beatrice command", str(command_path))
-    state.save()
-    commands = fake_commands(False)
-    commands.respond(
-        "claude -p",
-        claude_json("Unknown command: /beatrice-code-review"),
-        claude_json(BLOCK_OUTPUT),
-        claude_json(BLOCK_OUTPUT),
-    )
-
-    exit_code = run_main(monkeypatch, 2)
-
-    prompts = [command_text for command_text, _, _ in claude_calls(commands)]
-    assert exit_code == 0
-    assert prompts[0].startswith("claude -p /beatrice-code-review master")
-    assert prompts[1].startswith("claude -p Review the diff against master.")
-    assert "retried with the command file" in (beatrice_feature / "review" / "beatrice-2.md").read_text(encoding="utf-8")
 
 
 def test_run_round_permission_denials_are_noted(

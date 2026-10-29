@@ -388,22 +388,66 @@ def find_features_directory(start: Path) -> Path | None:
     return None
 
 
-def find_active_feature(start: Path) -> Path | None:
+def worktree_features_directories(start: Path) -> list[Path]:
     """
-    Find the feature currently running, named in docs/features/.active.
+    List the docs/features folders of the worktrees of the repository a directory is in.
 
-    :param start: The directory to search from.
-    :return: The active feature's directory, when one is active.
+    :param start: Any directory of the repository (main checkout or worktree).
+    :return: `<main checkout>/.claude/worktrees/<branch>/docs/features` for every worktree that has one.
     """
-    features_directory = find_features_directory(start)
-    if features_directory is None:
-        return None
+    main_checkout = main_checkout_of(start)
+    if main_checkout is None:
+        return []
+    return [
+        worktree / FEATURES_DIRECTORY
+        for worktree in sorted(main_checkout.glob(WORKTREES_GLOB))
+        if (worktree / FEATURES_DIRECTORY).is_dir()
+    ]
+
+
+def active_feature_in(features_directory: Path) -> Path | None:
     ticket, pointer = read_active_marker(features_directory)
     if ticket == "":
         return None
     if pointer is not None and pointer.is_dir():
         return pointer
     return features_directory / ticket
+
+
+def is_running_feature(feature_directory: Path) -> bool:
+    state_path = feature_directory / STATE_FILE_NAME
+    return state_path.is_file() and not FeatureState.load(state_path).is_finished()
+
+
+def find_active_feature(start: Path, session_id: str = "") -> Path | None:
+    """
+    Find the feature currently running, named in a docs/features/.active.
+
+    Each worktree keeps its feature in its own docs/features, so a session inside a worktree finds that worktree's feature.
+    From the main checkout (a session that couldn't enter its worktree), the worktrees' features are searched: the one whose
+    `Session:` is this session, else the only unfinished one.
+
+    :param start: The directory to search from.
+    :param session_id: The asking session, to pick between several worktrees' features.
+    :return: The active feature's directory, when one is active.
+    """
+    features_directory = find_features_directory(start)
+    if features_directory is not None:
+        active = active_feature_in(features_directory)
+        if active is not None:
+            return active
+    running = [
+        active
+        for active in (active_feature_in(directory) for directory in worktree_features_directories(start))
+        if active is not None and is_running_feature(active)
+    ]
+    for active in running:
+        if session_id != "" and FeatureState.load(active / STATE_FILE_NAME).field("Session") == session_id:
+            return active
+
+    if len(running) == 1:
+        return running[0]
+    return None
 
 
 def read_active_marker(features_directory: Path) -> tuple[str, Path | None]:
@@ -440,14 +484,15 @@ def write_active_marker(features_directory: Path, ticket: str, pointer: Path | N
     )
 
 
-def find_running_feature(start: Path) -> FeatureState | None:
+def find_running_feature(start: Path, session_id: str = "") -> FeatureState | None:
     """
     Find the active feature when it is approved and not DONE or BLOCKED; the guards act only then.
 
     :param start: The directory to search from.
+    :param session_id: The asking session, to pick between several worktrees' features.
     :return: Its state, or None when no approved feature is running.
     """
-    feature_directory = find_active_feature(start)
+    feature_directory = find_active_feature(start, session_id)
     if feature_directory is None or not (feature_directory / STATE_FILE_NAME).is_file():
         return None
     state = FeatureState.load(feature_directory / STATE_FILE_NAME)
@@ -458,32 +503,29 @@ def find_running_feature(start: Path) -> FeatureState | None:
 
 def load_feature_state(ticket: str, start: Path) -> FeatureState:
     """
-    Load the state.md of a ticket.
+    Load the state.md of a ticket: from the docs/features above the start, or from any of the repository's worktrees.
 
     :param ticket: The ticket, e.g. `BTRC-1234`.
-    :param start: The directory to search for docs/features from.
+    :param start: The directory to search from (main checkout or worktree).
     :return: The feature's state.
-    :raises FeatureNotFoundError: When docs/features or the ticket's state.md doesn't exist.
+    :raises FeatureNotFoundError: When no docs/features holds the ticket's state.md.
     """
+    candidates: list[Path] = []
     features_directory = find_features_directory(start)
-    if features_directory is None:
-        raise FeatureNotFoundError(
-            f"No docs/features directory above {start}. Run this from the repository or the feature's worktree.",
-        )
-    candidates = [features_directory / ticket]
-    active_ticket, pointer = read_active_marker(features_directory)
-    if active_ticket == ticket and pointer is not None:
-        candidates.append(pointer)
-    main_checkout = features_directory.parent.parent
-    candidates.extend(
-        worktree / FEATURES_DIRECTORY / ticket
-        for worktree in sorted(main_checkout.glob(WORKTREES_GLOB))
-    )
+    if features_directory is not None:
+        candidates.append(features_directory / ticket)
+        active_ticket, pointer = read_active_marker(features_directory)
+        if active_ticket == ticket and pointer is not None:
+            candidates.append(pointer)
+    candidates.extend(directory / ticket for directory in worktree_features_directories(start))
     for candidate in candidates:
         if (candidate / STATE_FILE_NAME).is_file():
             return FeatureState.load(candidate / STATE_FILE_NAME)
 
-    return FeatureState.load(features_directory / ticket / STATE_FILE_NAME)
+    raise FeatureNotFoundError(
+        f"No state.md for {ticket} in docs/features above {start} or in any worktree under .claude/worktrees/. "
+        "Run this from the repository or the feature's worktree.",
+    )
 
 
 def write_running_marker(feature_directory: Path, step: str):

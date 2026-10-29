@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-Finishes a feature branch in two parts, because Claude Code blocks work on the main checkout while the session is inside the worktree:
-(a) inside the worktree: commit, rebase on the base, push with a lease, wait for the pipeline, stop the branch's containers;
-(b) after the orchestrator called ExitWorktree, from the main checkout (`--cleanup`): move the feature folder back to the
-main checkout, remove the worktree, update the base. Without a worktree (`Worktree mode: none`) one run does both.
+Finishes a feature branch from its code root: commit, rebase on the base, push with a lease, wait for the pipeline, stop the branch's containers.
 
-Usage: python3 finish_branch.py BTRC-1234            part (a)
-       python3 finish_branch.py BTRC-1234 --cleanup  part (b)
+In worktree mode the worktree is kept, with the feature folder (state.md, reviews, summary, video) inside it, so nothing is
+written in the main checkout; the user removes it later with `worktree.py remove <ticket>` from the main checkout.
+Without a worktree (`Worktree mode: none`) it also updates the base branch in the main checkout.
+Usage: python3 finish_branch.py BTRC-1234
 Every step checks whether it is still needed (and finished steps are recorded under `## Finish`), so running the script again resumes.
 Exit codes: 0 done, 10 rebase conflict, 20 pipeline failed, 30 push rejected (someone else pushed),
 1 another error, 2 setup error (state.md fields, wrong branch checked out, or another long step running).
 
 :author: midnight-workflow
-:date: 28/10/2026
+:date: 29/10/2026
 """
 # ----- Imports ----- #
 
@@ -26,7 +25,6 @@ from pathlib import Path
 import command_runner
 from feature_state import FeatureNotFoundError, FeatureState, StepAlreadyRunningError, load_feature_state, refresh_running_marker, running_marker
 from git_changes import is_ancestor, run_git
-from worktree import WorktreeError, bring_feature_home, remove_worktree as remove_feature_worktree
 
 # ----- Consts ----- #
 
@@ -68,7 +66,7 @@ CONFLICT_MARKER_PATTERN = re.compile(r"^(?:<<<<<<<|>>>>>>>)(?: |$)", re.MULTILIN
 SPEC_TITLE_PREFIXES = ("Spec:", "Spec -")
 REBASE_STATE_DIRECTORIES = ("rebase-merge", "rebase-apply")
 LOCAL_REFS_PREFIX = "refs/heads/"
-CLEANUP_COMMAND = 'python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" {ticket} --cleanup'
+REMOVE_COMMAND = 'python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove {ticket}'
 
 # ----- Classes ----- #
 
@@ -624,13 +622,12 @@ def stop_containers(state: FeatureState, context: BranchContext):
     )
 
 
-def remove_worktree(state: FeatureState, context: BranchContext):
+def record_worktree_kept(state: FeatureState, context: BranchContext):
     """
-    Remove the feature's worktree with worktree.py's logic; in no-worktree mode there is nothing to remove.
+    Record what happens to the code root: a worktree is kept with the feature folder in it; without one there is nothing to remove.
 
     :param state: The feature's state.
     :param context: The branch context.
-    :raises FinishStepError: With code 1 when git can't remove the worktree.
     """
     if not context.uses_worktree:
         record_step(
@@ -639,14 +636,11 @@ def remove_worktree(state: FeatureState, context: BranchContext):
             "(no worktree: the feature used the main checkout)",
         )
         return
-    try:
-        removed = remove_feature_worktree(state)
-    except WorktreeError as worktree_error:
-        raise FinishStepError(OTHER_ERROR_EXIT_CODE, str(worktree_error))
+    remove_command = REMOVE_COMMAND.format(ticket=context.ticket)
     record_step(
         state,
         "worktree",
-        f"({removed})",
+        f"(kept at {context.code_root} with the feature folder; remove it from the main checkout with `{remove_command}`)",
     )
 
 
@@ -692,12 +686,11 @@ def update_base_checkout(state: FeatureState, context: BranchContext):
     )
 
 
-def finish(state: FeatureState) -> bool:
+def finish(state: FeatureState):
     """
-    Run part (a), every step still needed, and also part (b) when there is no worktree.
+    Run every finish step still needed. A worktree is kept; without one the base is updated in the main checkout.
 
     :param state: The feature's state.
-    :return: Whether the branch is completely finished; False when the worktree cleanup (part b) is still to run.
     :raises FinishStepError: With the exit code of the step that stopped.
     """
     context = read_context(state)
@@ -728,75 +721,28 @@ def finish(state: FeatureState) -> bool:
         stop_containers(state, context)
 
     if not is_step_recorded(state, "worktree"):
-        if context.uses_worktree:
-            return False
-        remove_worktree(state, context)
+        record_worktree_kept(state, context)
 
-    update_base_checkout(state, context)
-    return True
+    if not context.uses_worktree:
+        update_base_checkout(state, context)
 
 
-def is_inside(path: Path, directory: Path) -> bool:
-    return path.resolve().is_relative_to(directory.resolve())
-
-
-def cleanup(state: FeatureState) -> FeatureState:
-    """
-    Run part (b) from the main checkout: bring the feature folder home, remove the worktree, update the base.
-
-    :param state: The feature's state (its folder is still in the worktree).
-    :return: The state of the feature folder in the main checkout.
-    :raises FinishStepError: With code 2 before part (a) is done or while the current directory is inside the worktree.
-    """
-    context = read_context(state)
-    if not is_step_recorded(state, "containers"):
-        raise FinishStepError(
-            SETUP_ERROR_EXIT_CODE,
-            f"Part (a) isn't done yet: run finish_branch.py {context.ticket} inside the worktree first.",
-        )
-    if context.uses_worktree and is_inside(Path.cwd(), context.code_root):
-        raise FinishStepError(
-            SETUP_ERROR_EXIT_CODE,
-            "The current directory is inside the worktree. Call ExitWorktree first; the cleanup runs from the main checkout.",
-        )
-    home_state = bring_feature_home(state)
-    if not is_step_recorded(home_state, "worktree"):
-        remove_worktree(home_state, context)
-    update_base_checkout(home_state, context)
-    return home_state
-
-
-def record_result(
-    state: FeatureState,
-    exit_code: int,
-    message: str,
-    is_done: bool,
-) -> str:
+def record_result(state: FeatureState, exit_code: int, message: str) -> str:
     """
     Record the run in state.md and tell the orchestrator what comes next.
 
-    :param state: The feature's state (the main checkout's copy after a cleanup).
+    :param state: The feature's state.
     :param exit_code: The run's exit code.
     :param message: The failing step's message, if any.
-    :param is_done: Whether the branch is completely finished.
     :return: The line printed for the orchestrator.
     """
     state.reload()
-    if exit_code == DONE_EXIT_CODE and is_done:
+    if exit_code == DONE_EXIT_CODE:
         state.reset_tries()
         state.set_field("Phase", "SUMMARY")
         state.log("finish_branch done")
         state.save()
         return "Branch finished. Phase is now SUMMARY."
-    if exit_code == DONE_EXIT_CODE:
-        state.reset_tries()
-        state.set_field("Finish stage", "cleanup")
-        state.log(
-            "finish_branch part (a) done; the worktree cleanup is next",
-        )
-        state.save()
-        cleanup_command = CLEANUP_COMMAND.format(ticket=state.field("Ticket"))
-        return f"Part (a) done. Now call ExitWorktree, then run `{cleanup_command}` from the main checkout."
     if exit_code == PUSH_REJECTED_EXIT_CODE:
         state.block(
             "push rejected, someone else pushed to the branch",
@@ -813,11 +759,6 @@ def record_result(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Finish a feature branch.")
     parser.add_argument("ticket", help="The ticket, e.g. BTRC-1234.")
-    parser.add_argument(
-        "--cleanup",
-        action="store_true",
-        help="Part (b): after ExitWorktree, remove the worktree and update the base.",
-    )
     arguments = parser.parse_args()
     try:
         state = load_feature_state(arguments.ticket, Path.cwd())
@@ -826,27 +767,14 @@ def main() -> int:
         return SETUP_ERROR_EXIT_CODE
     try:
         with running_marker(state.feature_directory, "finish"):
-            result_state = state
-            is_done = False
             try:
-                if arguments.cleanup:
-                    result_state = cleanup(state)
-                    is_done = True
-                else:
-                    is_done = finish(state)
+                finish(state)
                 exit_code = DONE_EXIT_CODE
                 message = ""
             except FinishStepError as step_error:
                 exit_code = step_error.exit_code
                 message = str(step_error)
-            print(
-                record_result(
-                    result_state,
-                    exit_code,
-                    message,
-                    is_done,
-                ),
-            )
+            print(record_result(state, exit_code, message))
     except StepAlreadyRunningError as running_error:
         print(f"Setup error: {running_error}")
         return SETUP_ERROR_EXIT_CODE

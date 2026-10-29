@@ -7,13 +7,13 @@ argument-hint: "<BTRC-n> \"<description>\" [base] [--no-worktree] | resume <BTRC
 
 Request: `$ARGUMENTS`
 
-You are the orchestrator. You do every step yourself, in this one session. Subagents are used only for exploration (step E) and for two reviewers in Gate B.
+You are the orchestrator. You do every step yourself, in this one session. Your own subagents are used only for exploration (step E) and, in Gate B, for at most 2 reviewers next to Beatrice (`conventions-reviewer`, `playwright-reviewer`). Beatrice isn't one of them: her two `claude -p` sessions are full sessions, and her skill starts as many subagents as it wants. Never tell her, or limit her, how many.
 
 ## Rules (always)
 1. `state.md` is the truth. Update it after every step, before the next one. After a compaction, read it again.
 2. Run every script from the **code root** (the session's directory after `EnterWorktree`; the scripts find the feature folder from there):
    `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py" ...`
-3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder moves with it to `<worktree>/docs/features/<Ticket>/`; every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
+3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder lives in the worktree too, at `<worktree>/docs/features/<Ticket>/` (it is written there from the start and stays there after finish); every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
 4. Scope: new code follows the conventions. Existing lines change only when the task needs them changed. Never rename, reformat or "fix" existing code you don't need to touch.
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
@@ -50,9 +50,10 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 - `resume BTRC-<n>` → go to **R**.
 
 ## R. Resume
-1. Find the feature: `docs/features/BTRC-<n>/state.md` in this checkout, or the folder named on the `path:` line of `docs/features/.active`, or `.claude/worktrees/*/docs/features/BTRC-<n>/state.md`. If none exists: tell the user and stop.
-   - If it lives in a worktree and the session isn't in that worktree yet (`claude --continue` usually returns it there by itself), call `EnterWorktree` with the worktree's absolute path. If the session can't enter it (`Phase: FINISH` with `Finish stage: cleanup`), stay in the main checkout.
-2. Make sure the `docs/features/.active` next to the feature folder names `BTRC-<n>`.
+1. Find the feature: `.claude/worktrees/*/docs/features/BTRC-<n>/state.md` (a worktree feature), else `docs/features/BTRC-<n>/state.md` in this checkout (a `--no-worktree` feature, or one started before the docs lived in worktrees). If none exists: tell the user and stop.
+   - If it lives in a worktree and the session isn't in that worktree yet (`claude --continue` usually returns it there by itself), call `EnterWorktree` with the worktree's absolute path.
+   - An old feature folder in the main checkout with a worktree recorded: run `worktree.py create BTRC-<n>` (step S4); it moves the folder into the worktree.
+2. Make sure the `docs/features/.active` next to the feature folder names `BTRC-<n>`. Never write a `.active` in the main checkout for a worktree feature.
 3. If `Status` starts with `BLOCKED`: show the reason and the last 10 `## Log` lines, and stop.
 4. If `Status: DONE`: show `summary.md` and stop.
 5. Clear the `Session:` field (this is a new session; the Stop hook records the new id).
@@ -63,8 +64,17 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 1. Ticket = `BTRC-<n>` (uppercase). Title = the description.
 2. Base = the `[base]` argument, else `git branch --show-current`.
 3. Branch = `BTRC-<n>-<2-4 word kebab-case summary>`, e.g. `BTRC-1234-csv-export`. If a branch for this BTRC-n already exists (`git branch -a --list "*BTRC-<n>-*"`), use that name.
-4. Create `docs/features/BTRC-<n>/` and write `docs/features/.active` with one line: `BTRC-<n>`.
-5. Find Beatrice's command file: `.claude/commands/beatrice-code-review.md` in the repo, else `~/.claude/commands/beatrice-code-review.md`. If neither exists, keep the placeholder below and ask the user for the path during the grill.
+4. Create the code root **first**, so the feature's docs are born in it. It also keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`:
+   - Without `--no-worktree` (always a worktree):
+     ```
+     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket> --branch "<Branch>" --base "<Base>" --title "<Title>"
+     ```
+     It fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or reuses an existing `<Branch>`. It copies the gitignored files listed in `.worktreeinclude` (e.g. `.env`), and writes the feature folder **inside the worktree**: `<worktree>/docs/features/<Ticket>/state.md` (Ticket, Title, Branch, Base, `Repository:`, `Worktree:`, `Worktree mode: worktree`, `Phase: SETUP`) and `<worktree>/docs/features/.active`. Nothing is written in the main checkout's `docs/`. Its last line names the worktree's absolute path.
+     Then call the **`EnterWorktree`** tool with that absolute path (a path under `.claude/worktrees/` needs no approval). It moves the session's directory, write access and project config (the folder `CLAUDE.md` files, settings) into the worktree. From now on, work only there; every `docs/features/<Ticket>/` path is the worktree's.
+     If `EnterWorktree` isn't available in this Claude Code version: stay in the main checkout, but read and write the feature folder only with absolute paths into the worktree (`<repo root>/.claude/worktrees/<Branch>/docs/features/<Ticket>/`), never the main checkout's `docs/features/`. Tell the user once that the worktree's folder `CLAUDE.md` files may not load (read them yourself before editing a folder).
+   - With `--no-worktree`: add `--no-worktree` to the same command. It switches the main checkout to `<Branch>` (creating it from `origin/<Base>` or reusing it), writes the feature folder in the main checkout's `docs/features/` (that checkout is the branch's code root) and records `Worktree mode: none`.
+   Exit 2: another branch for this BTRC-n exists, or a name is missing: tell the user and stop. Exit 1: git failed (e.g. uncommitted changes in the main checkout): show the message and stop.
+5. Find Beatrice's **skill**: `.claude/skills/beatrice-code-review/SKILL.md` in the code root, else `~/.claude/skills/beatrice-code-review/SKILL.md`. Found → leave `Beatrice skill:` empty (the script finds it the same way). Not found → ask the user for its path during the grill and write it as `Beatrice skill: <path to SKILL.md or its folder>`. `run_beatrice.py` stops with a setup error naming the paths it tried when the skill is missing.
 6. Fill `## Commands` from the `service-map` skill and the root/service `CLAUDE.md`. Each runs in the code root through `bash -lc`. Names starting with `coverage` must print diff-cover output and pass `--include-untracked` (new files stay untracked until finish). The test command must write the coverage report the coverage command reads. Example:
    ```
    - lint: npx nx affected -t lint --base=origin/<Base>
@@ -74,18 +84,18 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    ```
    If the service map is missing or mostly `TODO`, say that `/map-services` gives better results, and use what CLAUDE.md says.
 7. `Compose files:` = the `-f` files you use to start this branch's containers (space-separated, relative to the code root), e.g. `docker-compose.yml docker-compose.dev.yml`. Start containers only with `docker compose -p <Compose project> -f <each file> up -d`.
-8. Write `docs/features/BTRC-<n>/state.md`:
+8. Complete `docs/features/BTRC-<n>/state.md` in the code root (`worktree.py` wrote its first fields; keep them). It ends up like:
     ```markdown
     Ticket: BTRC-1234
     Title: add CSV export to entities
     Branch: BTRC-1234-csv-export
     Base: master
-    Worktree:
-    Worktree mode:
+    Repository: /home/<you>/work/midnight-api
+    Worktree: .claude/worktrees/BTRC-1234-csv-export
+    Worktree mode: worktree
     Compose project: btrc-1234
     Compose files: docker-compose.yml
-    Beatrice command: /home/<you>/.claude/commands/beatrice-code-review.md
-    Beatrice mode: slash
+    Beatrice skill:
     Approved: no
     Session:
     Phase: EXPLORE
@@ -109,23 +119,9 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
     - <DD/MM/YYYY HH:MM> setup done on <Base>
     ```
     - `Compose project` = `btrc-<n>` (lowercase).
-    - `Beatrice mode`: `slash` runs `/beatrice-code-review <Base>`; `file` passes the file's text as the prompt. The script switches to `file` by itself for a round when `claude -p` doesn't know the slash command. Optional field `Beatrice tools: <--allowedTools value>` overrides the default read-only tool list.
-    - Leave `Worktree:`, `Worktree mode:`, `Slices:` and `Session:` empty; scripts and later steps fill them.
-9. Create the code root (it also keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`):
-   - Without `--no-worktree` (always a worktree):
-     ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket>
-     ```
-     It fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or reuses an existing `<Branch>`. It records `Worktree:`, `Worktree mode: worktree` and `Repository:`, copies the gitignored files listed in `.worktreeinclude` (e.g. `.env`), and **moves the feature folder into the worktree** (`<worktree>/docs/features/<Ticket>/`; the main checkout's `.active` points at it). Its last line names the worktree's absolute path.
-     Then call the **`EnterWorktree`** tool with that absolute path (a path under `.claude/worktrees/` needs no approval). It moves the session's directory, write access and project config (the folder `CLAUDE.md` files, settings) into the worktree. From now on, work only there.
-     If `EnterWorktree` isn't available in this Claude Code version: stay in the main checkout, work with absolute paths into the worktree, and tell the user once that the worktree's folder `CLAUDE.md` files may not load (read them yourself before editing a folder).
-   - With `--no-worktree`:
-     ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket> --no-worktree
-     ```
-     It switches the main checkout to `<Branch>` (creating it from `origin/<Base>` or reusing it) and records `Worktree mode: none`.
-   Exit 2: another branch for this BTRC-n exists, or a field is missing: tell the user and stop. Exit 1: git failed (e.g. uncommitted changes in the main checkout): show the message and stop.
-10. In the code root, show the output of `git status` and `git worktree list`.
+    - Beatrice gets only: "Use the `beatrice-code-review` skill to review the branch <Branch> against <Base>. Write down your comments." No description, no spec, no format instructions. Optional field `Beatrice tools: <--allowedTools value>` overrides the default read-only tool list (keep `Agent` and `Skill` in it).
+    - Leave `Slices:` and `Session:` empty; later steps fill them. Set `Phase: EXPLORE` last.
+9. In the code root, show the output of `git status` and `git worktree list`.
 
 ## E. Explore (Phase: EXPLORE)
 1. Start 3 `explorer` agents **in one message** (parallel). Same prompt for each, only `n` differs:
@@ -149,7 +145,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 2. **Frontend scope** (only when `- Touches frontend: yes`): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): Playwright reviewer, video, HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
 3. **HTML preview** (only when `- HTML preview: yes`): before the spec, load the `html-mockups` skill and write `docs/features/<Ticket>/mockups/<screen>.html` for each new or changed screen (plain HTML/CSS, no CDN, light/dark toggle, RTL toggle, empty/loading/error states). Tell the user the paths and ask for changes in the next grill round. Repeat until they approve the mockups.
 4. Every inconsistency `I-n` must end as a decision.
-5. Ask for the Beatrice command path here if setup didn't find it.
+5. Ask for the path of Beatrice's skill here if setup didn't find it.
 6. It ends when `grill-notes.md` has no open or assumed unknowns and the user confirmed the readback. Set `Phase: SPEC`.
 
 ## P. Spec, plan, approval (Phase: SPEC)
@@ -170,7 +166,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    - `Files:` lists every file the slice may change. No other headers inside a slice.
    - Test files are not listed here (they come from test-plan.md).
 3. Run the write-spec self-check. Fix what fails.
-4. Check `## Commands`, `## Frontend`, `Compose files` and `Beatrice command` in state.md are final.
+4. Check `## Commands`, `## Frontend`, `Compose files` and `Beatrice skill` in state.md are final.
 5. Approval is your **last question**. Show: goal, number of REQs/ECs/slices, every `NEW` pattern, the riskiest decision, the paths of spec.md and plan.md (and the mockups). Ask with `AskUserQuestion`: "Approve the spec and plan?" → "Approve and start (Recommended)" / "I have changes". On changes: edit, ask again.
 6. On approval, set in state.md: `Approved: yes`, `Phase: BUILD`, `Slice: 1`, `Slices: <number of slices>`, `Tries: 0`. Set `Status: APPROVED (<DD/MM/YYYY>)` in spec.md and plan.md.
 7. From now on: no questions. The Stop hook will refuse to let you stop until Status is DONE or BLOCKED, and tells you the next step.
@@ -262,31 +258,25 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 4. Set `Phase: FINISH`.
 
 ## F. Finish (Phase: FINISH)
-Finishing has two parts, because the worktree can't remove itself and the main checkout is off-limits from inside it.
-1. **Part (a), inside the worktree.** If `Finish stage: cleanup` is already in state.md, skip to step 3. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
+Stay in the code root (the worktree). Don't call `ExitWorktree`: the worktree is kept, with the feature folder in it.
+1. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
    ```
    python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>
    ```
-   It checks the code root is on `Branch` (never the base), commits, `git pull --rebase origin <Base>`, pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. Running it again resumes. With `Worktree mode: none` it also does part (b) and sets `Phase: SUMMARY`: go to Z.
+   It checks the code root is on `Branch` (never the base), commits, `git pull --rebase origin <Base>`, pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. It keeps the worktree (with `Worktree mode: none` it updates the base in the main checkout instead) and sets `Phase: SUMMARY`. Running it again resumes.
 2. Act on the exit code:
    | Code | Do |
    |---|---|
-   | 0 | Part (a) done: it wrote `Finish stage: cleanup` (or `Phase: SUMMARY` without a worktree). Go to step 3 (or Z). |
+   | 0 | Done: `Phase: SUMMARY`. Go to Z. |
    | 10 | Rebase conflict: resolve the listed files in the code root (remove every `<<<<<<<`/`>>>>>>>` marker), `git add <files>`, run the `test` command, run the script again. Don't run `git rebase --continue` yourself. |
    | 20 | Pipeline failed: fix the cause from the log tail in the code root, run the tests, run the script again. |
    | 30 | Push rejected: someone else pushed. The script wrote BLOCKED. Stop. |
    | 1 | Read the message, fix the cause, run again. |
    | 2 | Setup error (state.md fields, wrong branch checked out, or another run is still going). Fix the cause, run again. |
    The script writes BLOCKED itself after 3 runs with the same code.
-3. **Leave the worktree:** call the **`ExitWorktree`** tool (keep the worktree; the script removes it). The session is back in the main checkout. (If the session never entered the worktree, skip this.)
-4. **Part (b), from the main checkout:**
-   ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket> --cleanup
-   ```
-   It copies the feature folder back to the main checkout's `docs/features/<Ticket>/`, removes the worktree (the branch stays), pulls the base in the main checkout, and sets `Phase: SUMMARY`. Exit 2 "inside the worktree": call `ExitWorktree` first. Exit 1: read the message (e.g. uncommitted files in the worktree), fix, run again.
 
 ## Z. Summary (Phase: SUMMARY)
-1. Write `docs/features/<Ticket>/summary.md` (in the main checkout now):
+1. Write `docs/features/<Ticket>/summary.md` in the code root (the worktree; never the main checkout):
    ```markdown
    # Summary: <Ticket> <feature>
    ## Built
@@ -300,10 +290,11 @@ Finishing has two parts, because the worktree can't remove itself and the main c
    ## Video
    - docs/features/<Ticket>/video/<Ticket>.webm (or: not recorded, because …; or: not requested)
    ## Finish
-   - Branch <Branch> pushed · pipeline <result> · worktree removed (or: main checkout) · base updated
+   - Branch <Branch> pushed · pipeline <result> · worktree kept at <absolute worktree path> (or: main checkout, base updated)
+   - Remove the worktree when you no longer need these docs: from the main checkout, `python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove <Ticket>` (the branch stays). That deletes this feature folder too.
    ## Needs your attention
    - <anything open, risky or left undone>
    ```
    List **every** finding of every source from every round.
-2. Set `Status: DONE` in state.md. Delete `docs/features/.active`.
+2. Set `Status: DONE` in state.md. Delete the code root's `docs/features/.active`.
 3. Show the user the summary and the feature folder path.

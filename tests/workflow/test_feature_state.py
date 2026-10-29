@@ -84,7 +84,7 @@ def test_feature_state_code_root_without_worktree_is_repository(tmp_path: Path, 
 def test_load_feature_state_missing_ticket_raises_feature_not_found_error(tmp_path: Path, make_feature_state: Callable[..., Path]):
     make_feature_state(tmp_path)
 
-    with pytest.raises(FeatureNotFoundError, match="No state file"):
+    with pytest.raises(FeatureNotFoundError, match="No state.md for BTRC-9"):
         load_feature_state("BTRC-9", tmp_path)
 
 
