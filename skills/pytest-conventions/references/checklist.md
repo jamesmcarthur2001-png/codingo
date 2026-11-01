@@ -18,9 +18,9 @@ Run this per changed test file. Every item must be answered ✅, ❌ (with `file
 - [ ] TS-07 Arrange / Act / Assert are visibly separated by single blank lines
 - [ ] TS-08 Exactly one action under test per test
 - [ ] TS-09 Each test checks one thing (multiple asserts only on the same result)
-- [ ] TS-25 One production unit per test: never create with the creator and check with the reader (or any two units); check through the models or the returned object
-- [ ] TS-26 The package's test environment is created and changed only in its `initialize_test_environment`; no test, fixture or helper adds, changes or deletes its rows
-- [ ] TS-27 `initialize_test_environment` builds rows only with the main service's model classes, never with production managers, creators or helpers
+- [ ] TS-29 One production unit per test: never create with the creator and check with the reader (or any two units); check through the models or the returned object
+- [ ] TS-30 The package's test environment is created and changed only in its `initialize_test_environment`; no test, fixture or helper adds, changes or deletes its rows
+- [ ] TS-31 `initialize_test_environment` builds rows only with the main service's model classes, never with production managers, creators or helpers
 - [ ] TS-10 No `for` loops in tests. Uses `@pytest.mark.parametrize`.
 - [ ] TS-11 Every test asserts something meaningful (no missing asserts, no `assert True`, not only "the mock was called" when a real result exists)
 - [ ] TS-12 Tests check behavior, not private implementation details
