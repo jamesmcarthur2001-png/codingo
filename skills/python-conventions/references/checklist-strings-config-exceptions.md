@@ -14,6 +14,11 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-43 (auto) String enums inherit from `StrEnum`, never `str, Enum`
 - [ ] PY-46 (auto) Pydantic field validation uses `Annotated[..., BeforeValidator(...)]` / `AfterValidator(...)`, not `@field_validator` methods
 
+- [ ] PY-71 No function returns a shared class part (a pydantic/SQLModel `Field(...)`, a validator, a `model_config`) for several classes to reuse; each class writes its fields out
+
+## Readable duplication
+- [ ] PY-72 No helper bundles `try`/`except` blocks or session steps (`add` + `commit` + `refresh` and similar) for its callers; see `sql-conventions` SQL-02 and SQL-06
+
 ## FastAPI
 - [ ] PY-37 (auto) Dependencies are functions passed with `Depends(...)` in each endpoint's signature, never stored in a constant or type alias
 - [ ] PY-67 New routers use `prefix=`, not `tags=`

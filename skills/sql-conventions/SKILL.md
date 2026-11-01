@@ -56,7 +56,7 @@ def create_entity(self, entity_input: EntityInput) -> Entity:
 
     :param entity_input: The values of the new entity.
     :return: The created entity.
-    :raises EntityAlreadyExistsError: When an entity with this name exists.
+    :raises AlreadyExistsError: When an entity with this name exists.
     """
     entity = Entity.model_validate(entity_input)
     with self._session.begin_nested():
@@ -78,7 +78,16 @@ def create_entity(self, entity_input: EntityInput) -> Entity:
 
     self._commit_or_raise()  # the commit block is hidden in a helper
     return entity
+
+
+# BAD:
+def create_entity(self, entity_input: EntityInput) -> Entity:
+    entity = Entity.model_validate(entity_input)
+    self._save_and_refresh(entity)  # add + commit + refresh hidden in one helper
+    return entity
 ```
+
+**Never bundle session steps into one helper.** No function that does `add` + `commit` + `refresh` (or any mix of `add`, `flush`, `commit`, `refresh`, `delete`) for the caller. Each step is written in the function that needs it.
 
 Follow the order of `begin_nested()` and the commit block that the existing functions of the same manager use.
 

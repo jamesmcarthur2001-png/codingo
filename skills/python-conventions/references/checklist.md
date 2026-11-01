@@ -9,7 +9,7 @@ The checklist is split into short per-topic lists. Before each slice, load the l
 | `checklist-typing-layout.md` | Typing, file layout and banners, tooling (PY-01 to PY-13, PY-28, PY-50) |
 | `checklist-docstrings-naming.md` | Docstrings, naming, `get_` prefix, comments, managers-only database folders (PY-14 to PY-22, PY-29, PY-35, PY-36, PY-41, PY-42, PY-52, PY-62, PY-70) |
 | `checklist-conditions-calls.md` | Conditions, `or` defaults, flat code, comprehensions, multiline calls and literals (PY-23, PY-24, PY-32, PY-38, PY-44, PY-45, PY-47, PY-56 to PY-58, PY-63 to PY-66) |
-| `checklist-strings-config-exceptions.md` | String constants, `.env`, classes and models, FastAPI, exceptions, suppressions and private members (PY-25 to PY-27, PY-30, PY-31, PY-33, PY-34, PY-37, PY-39, PY-43, PY-46, PY-53 to PY-55, PY-67 to PY-69) |
+| `checklist-strings-config-exceptions.md` | String constants, `.env`, classes and models, FastAPI, exceptions, suppressions and private members (PY-25 to PY-27, PY-30, PY-31, PY-33, PY-34, PY-37, PY-39, PY-43, PY-46, PY-53 to PY-55, PY-67 to PY-69, PY-71, PY-72) |
 
 Database sessions, transactions and indexes: the `sql-conventions` checklist (PY-40 moved there as SQL-03).
 twilight rules: `services/twilight/CLAUDE.md`. midnight_models rules: `libs/midnight_models/CLAUDE.md`. (PY-48, PY-49, PY-59, PY-60 and PY-61 moved there.)

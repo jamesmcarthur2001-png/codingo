@@ -582,4 +582,31 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 Some code is clearer written out where it's used than shared, even when it repeats. Don't extract helpers for:
 - `try` / `except` blocks
 - the `try: self._session.commit()` + `handle_integrity_error(...)` block of a write (see `sql-conventions`)
+- **session steps bundled together**: never a helper that does `add` + `commit` + `refresh` (or any mix of `add`, `flush`, `commit`, `refresh`, `delete`) in one call, like `save_and_refresh(entity)`. Write each step where it happens, so the function shows exactly what it does to the session.
+- **shared class parts**: never a function that returns a pydantic/SQLModel `Field(...)`, a validator, a `model_config` or other class-body piece so several models can reuse it (`def name_field(): return Field(max_length=100)`). Write the field out in each class, even when it repeats.
+
+```python
+# GOOD:
+class Site(SQLModel, table=True):
+    """
+    A place where assets are installed.
+    """
+    name: str = Field(max_length=100, unique=True)
+
+
+class Asset(SQLModel, table=True):
+    """
+    A device installed at a site.
+    """
+    name: str = Field(max_length=100, unique=True)
+
+
+# BAD:
+def unique_name_field() -> Any:
+    return Field(max_length=100, unique=True)  # hides the field's rules from every class that uses it
+
+
+class Site(SQLModel, table=True):
+    name: str = unique_name_field()
+```
 
