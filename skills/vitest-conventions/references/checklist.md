@@ -14,7 +14,7 @@ Run this per changed frontend Vitest file. Every item must be answered ✅, ❌ 
 - [ ] VT-09 No access to `wrapper.vm` internals and no calls to component methods
 - [ ] VT-10 Every test has a meaningful assertion on visible output or emitted events (no snapshot-only tests, no `expect(true)`, not just "a mock was called")
 - [ ] VT-11 Fresh Pinia/router per test, and no shared mutable state between tests
-- [ ] VT-12 Debounce tests use fake timers and the component's named debounce constant
+- [ ] VT-12 Debounce tests use fake timers and `vi.runOnlyPendingTimers()`, never a guessed delay
 - [ ] VT-13 Explicit checks and named constants per `vue-conventions` inside test code
 
 ## Component tests

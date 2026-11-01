@@ -1,6 +1,6 @@
 ---
 name: vue-conventions
-description: Use when creating, modifying, refactoring, or reviewing Vue 3, Vuetify, TypeScript, and Tailwind frontend code. Enforces SFC block layout, constants and interfaces in <script lang="ts">, no exports from .vue files, withDefaults Props and typed Emits interfaces, script setup ordering, typed refs over let, kebab-case .ts files, utils over composables, API calls only under requests/, fully explicit conditions (no any, no ??, ?., !!, || defaults, === only), if over ternary calls, no void, no comments, no console.log, theme colors in light and dark, RTL-safe spacing, EasyToolTip, loading/empty/error states, Promise.all, showGlobalSnackbar, and styling rules.
+description: Use when creating, modifying, refactoring, or reviewing Vue 3, Vuetify, TypeScript, and Tailwind frontend code. Enforces SFC block layout, only types in <script lang="ts"> and everything else (constants included) in <script setup>, no exports from .vue files, withDefaults Props and typed Emits interfaces, script setup ordering, typed refs over let, kebab-case .ts files, utils over composables, API calls only under requests/, fully explicit conditions (no any, no ??, ?., !!, || defaults, === only), if over ternary calls, no void, no comments, no console.log, theme colors in light and dark, RTL-safe spacing, EasyToolTip, loading/empty/error states, Promise.all, showGlobalSnackbar, and styling rules.
 ---
 
 # Vue 3, Vuetify & TypeScript Frontend Conventions
@@ -41,10 +41,10 @@ No `export interface` (or any export) in a `.vue` file: shared types go to `src/
 
 ### Script Tag Splitting
 
-Separate static type declarations from reactive runtime logic using two `<script>` tags:
+Separate type declarations from everything else using two `<script>` tags:
 
-1. `<script lang="ts">`: Contains component-specific interfaces (including the component's `Props` and `Emits` interfaces), types, enums, and **all** constants (timeouts, debounce delays, magic numbers, long strings). Constants never go in `<script setup>`. Nothing in it is exported (see §1).
-2. `<script setup lang="ts">`: Contains component runtime logic and reactive state. **No consts in `<script setup>`**: constant values (numbers, strings, lists, maps) go in `<script lang="ts">`. The only `const`s there are the sections of §3 (`emit`, `props`, refs, computeds, const functions).
+1. `<script lang="ts">`: **types only**: the component's interfaces (including `Props` and `Emits`), type aliases and enums. No constants, no functions, no values of any kind. Nothing in it is exported (see §1).
+2. `<script setup lang="ts">`: **everything else**: imports of values, constants (timeouts, debounce delays, magic numbers, long strings), reactive state, computeds, functions, watchers and lifecycle hooks, in the order of §3.
 
 ```vue
 <template>
@@ -70,8 +70,6 @@ interface Emits {
   'close': []
 }
 
-const DEFAULT_AVATAR_FALLBACK = '/assets/default-avatar.png'
-const DEBOUNCE_DELAY_MS = 300
 </script>
 
 <script setup lang="ts">
@@ -80,6 +78,9 @@ const emit = defineEmits<Emits>()
 const props = withDefaults(defineProps<Props>(), {
   initialStatus: false,
 })
+
+const DEFAULT_AVATAR_FALLBACK = '/assets/default-avatar.png'
+const DEBOUNCE_DELAY_MS = 300
 </script>
 
 <style scoped>
@@ -96,14 +97,15 @@ const props = withDefaults(defineProps<Props>(), {
 The contents of `<script setup lang="ts">` must follow this exact sequence, with single empty lines separating each section:
 
 1. **`defineEmits` & `defineProps`**:
-2. **`ref`s / reactive state**:
-3. **`computed` properties**:
-4. **Const functions**: `const fn = () => {}`.
-5. **Function declarations**: `function fn() {}`.
-6. **Watchers (`watch`, `watchEffect`)**:
-7. **Lifecycle hooks (`onBeforeMount`, `onMounted`, `onUnmounted`, ...)**:
+2. **Constants**: `const SEARCH_DEBOUNCE_MS = 300` (UPPER_SNAKE_CASE values, never reactive).
+3. **`ref`s / reactive state**:
+4. **`computed` properties**:
+5. **Const functions**: `const fn = () => {}`.
+6. **Function declarations**: `function fn() {}`.
+7. **Watchers (`watch`, `watchEffect`)**:
+8. **Lifecycle hooks (`onBeforeMount`, `onMounted`, `onUnmounted`, ...)**:
 
-Constants are not a section here: they live in `<script lang="ts">` (§2).
+`<script lang="ts">` holds only types (§2); every constant is in section 2 here.
 
 Every item sits in its own section: never declare a ref after a function, or a computed after a watcher.
 
@@ -116,6 +118,8 @@ const emit = defineEmits<Emits>()
 const props = withDefaults(defineProps<Props>(), {
   initialStatus: false,
 })
+
+const SEARCH_DEBOUNCE_MS = 300
 
 const isActionLoading = ref<boolean>(false)
 const searchFilter = ref<string>('')
@@ -263,7 +267,7 @@ The same applies to self-closing components: each attribute on its own line, and
 - **`if` over ternary for calls**: when the choice is which function to call (or whether to call one), use a full `if` / `else`, never a ternary (`isEditing ? updateAsset() : createAsset()`).
 - **No `void` before calls**: call the function as it is (`loadPage()`), or `await` it when the order matters. Never write `void loadPage()`.
 - **Prefer `ref` over `let`**: component state in `<script setup>` is a `ref` (`const selectedSiteId = ref<number | null>(null)`), not a reassigned `let`. A `let` isn't reactive, so the template and watchers never see its changes.
-- **Extract Constants**: Never leave magic numbers scattered in template or script bodies; extract them into named constants in `<script lang="ts">`.
+- **Extract Constants**: Never leave magic numbers scattered in template or script bodies; extract them into named constants in the constants section of `<script setup>` (§3).
 - **Strings**: strings of **more than 6 words** (7+: messages, multi-line text) become named constants. Strings of 6 words or fewer stay inline where they're used: moving them into constants only hides them and makes quick text changes slower. A constant that holds a string of 6 words or fewer is a violation, except a critical key.
 - **Critical keys are constants, whatever their length**: strings that must match exactly elsewhere (localStorage/sessionStorage and cache keys, header names, event names, query keys, permission or role names, keys shared with the backend). Define each once and import it. The backend makes only these constants (`python-conventions` §9).
 - **Mappings over long if chains**: behavior that depends on a type or key is a lookup in an object or `Record` (type → value, handler, or component), not one `if` per type. Adding a type then means adding one entry.

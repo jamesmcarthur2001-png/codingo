@@ -3,7 +3,8 @@ Full rules: the vue-conventions skill. The ones that matter most:
 - SFC order: <template> (one wrapper element) → <script lang="ts"> (types only) → <script setup lang="ts"> → <style>.
 - No export interface in .vue. Shared types → src/models/, shared functions → src/utils/. Prefer utils over composables.
 - Props: withDefaults(defineProps<Props>(), {...}). Emits: interface Emits { 'name': [Type, Type] }, no param names.
-- No consts in <script setup>.
+- <script lang="ts"> holds only types (interfaces, Props/Emits, type aliases, enums). Everything else, constants
+  included, goes in <script setup>: emits/props, constants, refs, computed, functions, watchers, hooks.
 - Spacing: ms/me/ps/pe only, never ml/mr/pl/pr (RTL).
 - Colors: Vuetify theme classes for text (text-entryText), Vuetify tokens for surfaces and borders,
   never hex/rgb. Check light and dark.

@@ -21,6 +21,9 @@ vitest-conventions, browser-test-conventions.
 - Say that something works or passes only together with the command output that shows it.
   If you can't check something, say so in your final message under "Open problems". Don't guess.
 
+## Tests
+- No tests in twilight. Don't write, plan or run tests for it; its changed lines need no coverage.
+
 ## Scope
 Change existing lines only when the task needs them changed, even in a file you're editing:
 no renaming, reformatting, retyping or reordering of code that already breaks the conventions.

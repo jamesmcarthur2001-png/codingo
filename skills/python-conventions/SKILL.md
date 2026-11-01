@@ -553,7 +553,7 @@ class UserNotFoundError(Exception):
 
 Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever writing, refactoring, or reviewing tests for Python backend code:
 
-- **100% Test Coverage**: All new backend code requires 100% test coverage (pure reverse proxy redirects excepted).
+- **100% Test Coverage**: All new backend code requires 100% test coverage (twilight excepted: it has no tests).
 - **Separate test database**: tests always run against their own database, never the application's, unless the user explicitly says otherwise (see `backend-test-infra`).
 
 ---

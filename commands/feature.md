@@ -88,6 +88,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    - test: npx nx affected -t test --base=origin/<Base>
    - coverage-backend: diff-cover services/evermore/coverage.xml --compare-branch=origin/<Base> --include-untracked --fail-under=100
    ```
+   No test or coverage command for twilight: it has no tests.
    If the service map is missing or mostly `TODO`, say that `/map-services` gives better results, and use what CLAUDE.md says.
 7. `Compose files:` = the `-f` files you use to start this branch's containers (space-separated, relative to the code root), e.g. `docker-compose.yml docker-compose.dev.yml`. Start containers only with `docker compose -p <Compose project> -f <each file> up -d`.
 8. Complete `docs/features/BTRC-<n>/state.md` in the code root (`worktree.py` wrote its first fields; keep them). It ends up like:
@@ -206,7 +207,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    |---|---|---|---|
    | `test_entity_by_id_missing_id_raises_not_found_error` | Reading an entity id that doesn't exist | Raises `NotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
    ```
-   Test name = the exact pytest function name / `it(...)` / `test(...)` string. File = path relative to the **repo root**. Cover every REQ, EC and new code path. No `|` inside a cell.
+   Test name = the exact pytest function name / `it(...)` / `test(...)` string. File = path relative to the **repo root**. Cover every REQ, EC and new code path, except in twilight (no tests there). No `|` inside a cell.
 2. Write the tests. Load before each kind: `pytest-conventions` + `backend-test-infra` (backend), `vitest-conventions` (frontend), `browser-test-conventions` (Playwright). A service's `tests/CLAUDE.md` wins over the skills.
 3. The test-plan hook blocks any test whose exact name isn't in the first column. Add the row first, then write the test.
 4. Test helper files (conftest, environment builders, factories, MSW handlers) that aren't in the File column: add them to the last slice's `Files:` in plan.md and log why.

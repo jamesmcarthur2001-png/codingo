@@ -25,7 +25,7 @@ Opinionated, comprehensive testing patterns for Python and pytest. Incorporates 
 8. **Isolation and order-independence**: Zero shared mutable state across tests. Tests must pass regardless of execution order and run cleanly in parallel (e.g. with `pytest-xdist`).
 9. **Mock at the boundary you own**: Patch where the object is *imported and looked up*, not where it is defined. Mock external network, filesystem, and clocks; never mock the unit under test.
 10. **100% test coverage**: All new business logic, models, services, and endpoints require 100% test coverage.
-    - *Exception*: Pure reverse proxy redirect endpoints without business logic do not require test suites.
+    - *Exception*: twilight (the reverse proxy) has no tests at all.
 
 ---
 

@@ -237,7 +237,7 @@ Also looked at: **Ralph loop** ("don't stop until done, state on disk": the idea
 midnight-api/CLAUDE.md                scope, questions, checking, git, naming
   services/evermore/CLAUDE.md         CRUD + real-data validation; transactions
   services/evermore/tests/CLAUDE.md   the inventory test model
-  services/twilight/CLAUDE.md         reverse proxy rules + what to test
+  services/twilight/CLAUDE.md         reverse proxy rules (no tests)
   libs/midnight_models/CLAUDE.md      models only
   frontend/CLAUDE.md                  frontend rules a script can't check
 ```
@@ -325,9 +325,7 @@ Optional extra rule (not in your notes): "don't assert on the count or order of 
 - List endpoints always take SupportsPagination(), SupportsFilters() and SupportsSort().
 - Pass-through endpoints: one-line docstring, no :param:/:return:.
 ## Tests
-- Pass-through routes (most routes, straight to evermore) get no tests.
-- Routes with logic (e.g. the MongoDB parts) get tests: mock the downstream HTTP service,
-  assert the forwarded request and the returned body.
+- No tests in twilight, for any route. Don't add a tests/ folder, test-plan rows or coverage commands for it.
 ```
 
 **`libs/midnight_models/CLAUDE.md`**
@@ -346,7 +344,8 @@ Full rules: the vue-conventions skill. The ones that matter most:
 - SFC order: <template> (one wrapper element) → <script lang="ts"> (types only) → <script setup lang="ts"> → <style>.
 - No export interface in .vue. Shared types → src/models/, shared functions → src/utils/. Prefer utils over composables.
 - Props: withDefaults(defineProps<Props>(), {...}). Emits: interface Emits { 'name': [Type, Type] }, no param names.
-- No consts in <script setup>.
+- <script lang="ts"> holds only types (interfaces, Props/Emits, type aliases, enums). Everything else, constants
+  included, goes in <script setup>: emits/props, constants, refs, computed, functions, watchers, hooks.
 - Spacing: ms/me/ps/pe only, never ml/mr/pl/pr (RTL).
 - Colors: Vuetify theme classes for text (text-entryText), Vuetify tokens for surfaces and borders,
   never hex/rgb. Check light and dark.

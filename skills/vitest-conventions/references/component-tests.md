@@ -9,7 +9,7 @@ A component test mounts **one component** and checks its contract: given these p
 - [ ] **User interaction:** clicks, typing, and keyboard behavior that change the DOM
 - [ ] **Async actions:** a loading indicator while pending, the success result, the error path through `handleNetworkError`, and the empty state, with the API module mocked
 - [ ] **Validation:** invalid input blocks submission and shows the message
-- [ ] **Debounce:** `vi.useFakeTimers()`, then advance by the component's **named** debounce constant (import it from the component's `<script lang="ts">` block), never by a magic number
+- [ ] **Debounce:** `vi.useFakeTimers()`, then advance past the debounce with `vi.runOnlyPendingTimers()` (the delay is a constant inside `<script setup>`, which can't be imported), never by a guessed number
 - [ ] **Dialog content components:** confirm and cancel emit the right events (the `v-dialog` wrapper belongs to the parent)
 
 ## 2. Mounting rules

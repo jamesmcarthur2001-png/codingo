@@ -45,5 +45,5 @@ Run this per changed test file. Every item must be answered ✅, ❌ (with `file
 
 ## Layers & coverage
 - [ ] TS-23 Each new endpoint has integration tests (service manager/reader) **and** API tests (test client)
-- [ ] TS-24 New code has 100% changed-line coverage, except pure proxy pass-through routes and lines listed under `## Coverage exemptions` in `state.md` with a reason
+- [ ] TS-24 New code has 100% changed-line coverage, except twilight (no tests at all) and lines listed under `## Coverage exemptions` in `state.md` with a reason
 - [ ] TS-25 Tests run with `uv run pytest`

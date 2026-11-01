@@ -34,7 +34,7 @@ Write `docs/features/<ticket>/test-plan.md` from `templates/test-plan.md`. **No 
    - Every new public function, endpoint, component, consumer, workflow, and activity has at least one row, and every error branch in the diff has one.
    - Backend: each new endpoint is tested through its service manager/reader **and** through the API (`backend-test-infra`).
    - Frontend: components (props, emits, loading/error/empty states) and views/flows in Vitest; one browser test per new user journey plus its main failure (`browser-test-conventions`). Behavior moved from jsdom to a browser test says so in "What it checks".
-   - Pure proxy pass-through routes get no rows.
+   - twilight (the reverse proxy) gets no rows: it has no tests.
 6. Don't plan tests that only restate the implementation (e.g. "the mock was called") when a real result can be checked.
 
 ## Self-check
@@ -45,9 +45,9 @@ Write `docs/features/<ticket>/test-plan.md` from `templates/test-plan.md`. **No 
 - [ ] Names follow the naming conventions exactly, and every test file is in the File column
 
 ## After writing the tests
-Run the tests and the changed-line coverage. Write the results to `state.md`, not to `test-plan.md`. Changed lines that stay uncovered for a good reason (e.g. a pure proxy pass-through route) go under `## Coverage exemptions` in `state.md`, one line each:
+Run the tests and the changed-line coverage. Write the results to `state.md`, not to `test-plan.md`. Changed lines that stay uncovered for a good reason go under `## Coverage exemptions` in `state.md`, one line each (twilight needs none: no coverage command covers it):
 ```markdown
 ## Coverage exemptions
-- services/twilight/routes/entities.py:40-52: pass-through route, no business logic
+- services/evermore/app/entities/export.py:40-42: unreachable after the validator
 ```
 If a planned test turns out to be impossible or wrong, change its row instead of silently dropping it.

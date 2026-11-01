@@ -19,8 +19,8 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 
 ## SFC structure
 - [ ] VU-04 Block order is `<template>` (one wrapper element), then `<script lang="ts">`, then `<script setup lang="ts">`, then `<style>` (only if needed)
-- [ ] VU-05 (auto for constants and Props/Emits) Interfaces, types, enums, and all constants are in `<script lang="ts">`, and runtime logic is in `<script setup>`. No consts in `<script setup>`.
-- [ ] VU-06 `<script setup>` order is emits/props, then refs, then computed, then const functions, then function declarations, then watchers, then lifecycle hooks, with single blank lines between sections
+- [ ] VU-05 `<script lang="ts">` holds only types (interfaces incl. `Props`/`Emits`, type aliases, enums); everything else, constants included, is in `<script setup>`
+- [ ] VU-06 `<script setup>` order is emits/props, then constants, then refs, then computed, then const functions, then function declarations, then watchers, then lifecycle hooks, with single blank lines between sections
 - [ ] VU-47 Refs are explicitly typed (`ref<boolean>(false)`)
 - [ ] VU-48 Prop-driven logic uses `watch(..., { immediate: true })`, not a bare `onMounted`
 

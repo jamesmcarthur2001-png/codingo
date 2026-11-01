@@ -1,6 +1,6 @@
 ---
 name: backend-test-infra
-description: Use when writing or reviewing backend tests that touch PostgreSQL, MongoDB, the FastAPI test client, the reverse proxy, RabbitMQ, or Temporal. Defines the integration and API test layers and how to set up each dependency. Complements pytest-conventions.
+description: Use when writing or reviewing backend tests that touch PostgreSQL, MongoDB, the FastAPI test client, RabbitMQ, or Temporal. Defines the integration and API test layers (twilight, the reverse proxy, has no tests) and how to set up each dependency. Complements pytest-conventions.
 ---
 
 # Backend Test Infrastructure
@@ -47,10 +47,9 @@ Applies to code you write or change. Never to unchanged lines.
 - Isolation: a unique database name per test (or drop the collections at teardown).
 - Create the indexes the code relies on inside the fixture, using the app's own index setup function.
 
-## 5. Reverse proxy
+## 5. Reverse proxy (twilight)
 
-- Pure pass-through routes have no tests (exempt).
-- Routes with logic (header rewriting, auth, path mapping, aggregation): mock the downstream service at the HTTP boundary (`respx`, or `httpx.MockTransport`), then assert the forwarded request (method, path, headers, body) and the proxied response.
+- **No tests in twilight**, for any route, with or without logic. Don't write, plan or run them; its changed lines need no coverage.
 
 ## 6. RabbitMQ
 

@@ -44,7 +44,7 @@ The architecture of the monorepo: which service owns what, how requests and mess
 | Service | Path | Stack | Owns | Run | Test |
 |---|---|---|---|---|---|
 | Frontend | `TODO` | Vue 3, Vuetify, TypeScript | UI | `TODO` | `TODO` |
-| Reverse proxy | `TODO` | FastAPI | Routing every frontend request to a service | `TODO` | `TODO` |
+| Reverse proxy | `TODO` | FastAPI | Routing every frontend request to a service | `TODO` | none (no tests in twilight) |
 | CRUD service | `TODO` | FastAPI, PostgreSQL, SQLAlchemy, SQLModel | Entities and other relational data | `TODO` | `TODO` |
 | Mongo service | `TODO` | FastAPI, MongoDB | `TODO` | `TODO` | `TODO` |
 | `TODO` (other services) | `TODO` | FastAPI | `TODO` | `TODO` | `TODO` |
