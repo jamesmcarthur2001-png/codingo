@@ -64,7 +64,7 @@ NEEDS_PERSON = "needs a person"
 PUSH_REJECTED_MARKERS = ("rejected", "stale info")
 CONFLICT_MARKER_PATTERN = re.compile(r"^(?:<<<<<<<|>>>>>>>)(?: |$)", re.MULTILINE)
 SPEC_TITLE_PREFIXES = ("Spec:", "Spec -")
-COMMIT_TITLE_PATTERN = re.compile(r"^(?:feat|fix|refactor|perf|test|docs|style|build|ci|chore)\([a-z0-9_.,-]+\): \S")
+COMMIT_TITLE_PATTERN = re.compile(r"^(?:feat|fix|refactor|perf|test|docs|style|build|ci|chore)\([a-z0-9_.-]+(?:, [a-z0-9_.-]+)*\): \S")
 DEFAULT_COMMIT_TYPE = "feat"
 SCOPE_FOLDERS = ("services", "libs", "apps")
 REBASE_STATE_DIRECTORIES = ("rebase-merge", "rebase-apply")
@@ -222,11 +222,11 @@ def commit_title(state: FeatureState, context: BranchContext) -> str:
         scopes = changed_scopes(context)
         if len(scopes) == 0:
             scopes = [context.repository_root.name.lower()]
-        title = f"{DEFAULT_COMMIT_TYPE}({','.join(scopes)}): {spec_title(state)}"
+        title = f"{DEFAULT_COMMIT_TYPE}({', '.join(scopes)}): {spec_title(state)}"
     if COMMIT_TITLE_PATTERN.match(title) is None:
         raise FinishStepError(
             SETUP_ERROR_EXIT_CODE,
-            f"`Commit title: {title}` must look like `feat(evermore): add CSV export` (type, scope, what was done).",
+            f"`Commit title: {title}` must look like `feat(evermore): add CSV export` or `feat(evermore, frontend): …` (type, services joined by `, `, what was done).",
         )
     return title
 

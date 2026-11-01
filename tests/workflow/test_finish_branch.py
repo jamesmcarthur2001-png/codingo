@@ -447,3 +447,29 @@ def test_finish_branch_commit_title_in_the_wrong_format_is_a_setup_error(
 
     assert exit_code == 2
     assert not any(command.startswith(("git commit", "git push")) for command in commands.commands())
+
+
+def test_finish_branch_several_services_are_joined_by_a_comma_and_a_space(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+    for service in ("evermore", "twilight"):
+        service_folder = finish_setup.worktree / "services" / service
+        service_folder.mkdir(parents=True)
+        (service_folder / "export.py").write_text("rows = []\n", encoding="utf-8")
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 0
+    assert "feat(evermore, twilight): CSV export for entities" in remote_log(finish_setup, BRANCH)
+
+
+@pytest.mark.parametrize("title,is_valid", [
+    ("feat(evermore, frontend): add CSV export", True),
+    ("feat(evermore,frontend): add CSV export", False),
+    ("feat(evermore): add CSV export", True),
+])
+def test_commit_title_pattern_wants_a_space_after_each_comma(title: str, is_valid: bool):
+    assert (finish_branch.COMMIT_TITLE_PATTERN.match(title) is not None) == is_valid

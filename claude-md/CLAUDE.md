@@ -38,7 +38,8 @@ Then fix them all, and run the checks once at the end.
 - One branch per ticket: `BTRC-<n>-short-description`. Reuse it; never create a second branch for the same ticket.
 - Commits, merge requests and pushes: a title only, no description (no body, no trailers).
 - Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`.
-  The type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`); the scope is the service it changes.
+  The type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`); the scope is the service it changes;
+  several services are joined by a comma and a space: `feat(evermore, frontend): add CSV export`.
 - MR title: the same plus ` (BTRC-<n>)`. Several tickets: join the parts with ` & `, each with its own ticket:
   `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
 - Finishing a branch: `git pull --rebase origin <base>`, push with `--force-with-lease`, then wait until the pipeline passes

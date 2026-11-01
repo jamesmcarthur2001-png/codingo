@@ -21,7 +21,7 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 8. While `run_beatrice.py`, `gate_a.py` or `finish_branch.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
 9. Don't commit during the build. `finish_branch.py` makes the commit.
    Commits, merge requests and pushes get a **title only, no description** (no body, no trailers, no `-o merge_request.description`).
-   Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, comma-separated when several. No ticket in the commit.
+   Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, joined by a comma and a space when several (`feat(evermore, frontend): …`). No ticket in the commit.
    MR title: the same, followed by ` (BTRC-<n>)`. With more than one ticket, join the parts with ` & `: `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
 10. Any `docker compose` command for this branch uses `-p <Compose project>` and the files in `Compose files:`.
 11. Never add `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `# pragma: no cover`. Fix the code instead.
