@@ -5,12 +5,11 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
-WORKFLOW_DIR="$CLAUDE_DIR/midnight-workflow"
-MANIFEST="$WORKFLOW_DIR/installed-files.txt"
-BACKUP_DIR="$WORKFLOW_DIR/backup"
+MANIFEST="$CLAUDE_DIR/workflow-installed-files.txt"
+BACKUP_DIR="$CLAUDE_DIR/workflow-backup"
 
 if [ ! -f "$MANIFEST" ]; then
-    echo "midnight-workflow is not installed in $CLAUDE_DIR (no $MANIFEST)."
+    echo "The workflow is not installed in $CLAUDE_DIR (no $MANIFEST)."
     python3 "$REPO_DIR/install/merge_settings.py" remove "$CLAUDE_DIR/settings.json"
     exit 0
 fi
@@ -31,6 +30,7 @@ while IFS= read -r installed_file; do
     done
 done < "$MANIFEST"
 
-rm -rf "$WORKFLOW_DIR"
+rm -f "$MANIFEST"
+rm -rf "$BACKUP_DIR"
 python3 "$REPO_DIR/install/merge_settings.py" remove "$CLAUDE_DIR/settings.json"
-echo "midnight-workflow removed from $CLAUDE_DIR."
+echo "Workflow removed from $CLAUDE_DIR."

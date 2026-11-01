@@ -2,7 +2,7 @@
 """
 Finds what a branch changed compared to its base: files, added lines, and changed existing lines.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

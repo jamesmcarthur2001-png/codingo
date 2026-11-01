@@ -283,7 +283,7 @@ The same applies to self-closing components: each attribute on its own line, and
   The only exception is `export default`, where a tool requires it (e.g. `vite.config.ts`, `vitest.config.ts`, `playwright.config.ts`); keep it as the file's last statement.
 - **Indicative Variable Naming**: Use clear, descriptive variable and function names (e.g., `isUserDeletionPending`, `loadUserProfileDetails`), never generic names like `data`, `item`, or `load`.
 - **No suppressions**: never `eslint-disable` (any form), `/* eslint rule: off */`, `@ts-ignore`, `@ts-expect-error` or `@ts-nocheck`, and no new `off` rules in the eslint config. Fix the code instead. The workflow's checks fail on any new one.
-- **No comments**: no `//`, `/* */`, `<!-- -->`, and no JSDoc blocks, in script, template, or style. Clean, typed, well-named code is self-documenting.
+- **No comments, never**: no `//`, `/* */`, `<!-- -->`, and no JSDoc blocks, in script, template, or style. A spot that seems to need a comment can be made simpler: a well-named variable, computed or function says it instead.
 - **No Trailing `return`**: Functions that return nothing must not end with a bare `return`. Use `return` only for an early exit. Never write `return undefined` or `return null` to mean "nothing".
 
 ---

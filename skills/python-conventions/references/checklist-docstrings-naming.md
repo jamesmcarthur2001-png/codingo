@@ -21,7 +21,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-62 (auto) No new function name starts with `get_` (`entity_by_id`, not `get_entity_by_id`). Existing names (`get_session`, `get_and_inc`) stay as they are.
 
 ## Comments
-- [ ] PY-52 (auto) No comments: the only `#` lines are section banners
+- [ ] PY-52 (auto) No comments at all: the only `#` lines are section banners. A line that "needs" a comment gets a better variable or function name instead
 
 ## Layout
 - [ ] PY-70 Files under `database/create/` and `database/update/` hold only manager classes; helpers live in `utils.py` (or another utils module)

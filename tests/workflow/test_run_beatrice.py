@@ -229,7 +229,7 @@ def test_run_round_two_read_only_runs_merge_into_round_file(
     calls = claude_calls(commands)
     assert exit_code == 0
     assert len(calls) == 2
-    assert all(extra_environment == {"MIDNIGHT_ROLE": "reviewer"} for _, _, extra_environment in calls)
+    assert all(extra_environment == {"WORKFLOW_ROLE": "reviewer"} for _, _, extra_environment in calls)
     assert all("--disallowedTools Edit,Write,MultiEdit,NotebookEdit" in command_text for command_text, _, _ in calls)
     assert all("--permission-mode default" in command_text for command_text, _, _ in calls)
     assert all("Bash(glab mr:*)" not in command_text and "Bash(glab mr view:*)" in command_text for command_text, _, _ in calls)

@@ -14,6 +14,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-43 (auto) String enums inherit from `StrEnum`, never `str, Enum`
 - [ ] PY-46 (auto) Pydantic field validation uses `Annotated[..., BeforeValidator(...)]` / `AfterValidator(...)`, not `@field_validator` methods
 
+- [ ] PY-73 No shared base model or mixin for common ORM columns, and no helper that returns a reusable query; each model and function writes its own
 - [ ] PY-71 No function returns a shared class part (a pydantic/SQLModel `Field(...)`, a validator, a `model_config`) for several classes to reuse; each class writes its fields out
 
 ## Readable duplication

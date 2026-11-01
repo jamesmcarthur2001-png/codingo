@@ -17,14 +17,18 @@ Opinionated, comprehensive testing patterns for Python and pytest. Incorporates 
 
 1. **Test behavior, not implementation**: Focus on what the code does and its observable contract, not internal private implementation details.
 2. **Arrange-Act-Assert (AAA), Visibly**: Visibly separate every test function into three distinct blocks using single blank lines: setup (Arrange), the single action under test (Act), and verification (Assert).
-3. **One assertion concept per test**: A test verifies a single outcome or behavior. Multiple `assert` statements are permitted only when validating properties of the same single result.
-4. **DAMP over DRY in tests**: Descriptive And Meaningful Phrases over rigid Don't Repeat Yourself. Tests should be readable from top to bottom without jumping through complex helper abstractions.
-5. **Fixtures over setup methods**: Never use `unittest`-style `setUp`/`tearDown` or classes. Use pytest fixtures in `conftest.py` or module files.
-6. **Narrow fixture scopes**: Default to `function` scope. Widen to `module` or `session` only for expensive, read-only setup (e.g. database engines, mock servers).
-7. **Parametrize instead of looping**: Never write a `for` loop inside a test function. Loops hide which iteration failed; `@pytest.mark.parametrize` yields isolated, uniquely identified test cases.
-8. **Isolation and order-independence**: Zero shared mutable state across tests. Tests must pass regardless of execution order and run cleanly in parallel (e.g. with `pytest-xdist`).
-9. **Mock at the boundary you own**: Patch where the object is *imported and looked up*, not where it is defined. Mock external network, filesystem, and clocks; never mock the unit under test.
-10. **100% test coverage**: All new business logic, models, services, and endpoints require 100% test coverage.
+3. **Each test checks one thing**: one behavior, one outcome. Multiple `assert` statements are permitted only when they check the same single result. Two things to check → two tests (or a parametrized one).
+4. **One unit per test**: a test calls one production unit and checks it with plain data, never with another production unit. Don't create with the creator and then check with the reader (or update then read, or call one endpoint to check another): it's slower, and the second unit can hide a bug in the first, since both can agree on a wrong answer. Read what the unit wrote straight from the database through the models, or compare with the returned object.
+5. **Test environments are built in one place**: the data a test package uses (`tests/<module>/`) is created and changed only in its `initialize_test_environment` (or `initialize_*_environment`). Tests, fixtures and helpers read it and never add, change or delete its rows.
+6. **The environment uses only the service's own models**: `initialize_test_environment` builds rows with the main service's model classes directly (`Entity(...)`, `session.add(...)`), never with production managers, creators, helpers or another package's code. Building through production code would hide the very bugs the tests should find.
+7. **DAMP over DRY in tests**: Descriptive And Meaningful Phrases over rigid Don't Repeat Yourself. Tests should be readable from top to bottom without jumping through complex helper abstractions.
+8. **Fixtures over setup methods**: Never use `unittest`-style `setUp`/`tearDown` or classes. Use pytest fixtures in `conftest.py` or module files.
+9. **Narrow fixture scopes**: Default to `function` scope. Widen to `module` or `session` only for expensive, read-only setup (e.g. database engines, mock servers).
+10. **Parametrize instead of looping**: Never write a `for` loop inside a test function. Loops hide which iteration failed; `@pytest.mark.parametrize` yields isolated, uniquely identified test cases.
+11. **Isolation and order-independence**: Zero shared mutable state across tests. Tests must pass regardless of execution order and run cleanly in parallel (e.g. with `pytest-xdist`).
+12. **Mock at the boundary you own**: Patch where the object is *imported and looked up*, not where it is defined. Mock external network, filesystem, and clocks; never mock the unit under test.
+13. **No comments**: not even `# Arrange` / `# Act` / `# Assert`; the blank lines show them.
+14. **100% test coverage**: All new business logic, models, services, and endpoints require 100% test coverage.
     - *Exception*: twilight (the reverse proxy) has no tests at all.
 
 ---

@@ -7,7 +7,7 @@ Usage: python3 gate_a.py BTRC-1234              run the gate
 Exit codes: 0 passed, 1 failed, 2 setup error (no feature, no commands, a coverage command without
 --include-untracked, git failed, or another long step of the feature is running).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

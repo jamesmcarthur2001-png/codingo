@@ -2,7 +2,7 @@
 """
 Reads and updates a feature's state.md, the file every workflow step writes where it is.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #
@@ -21,7 +21,7 @@ import command_runner
 
 # ----- Consts ----- #
 
-ROLE_VARIABLE = "MIDNIGHT_ROLE"
+ROLE_VARIABLE = "WORKFLOW_ROLE"
 REVIEWER_ROLE = "reviewer"
 PROJECT_DIRECTORY_VARIABLE = "CLAUDE_PROJECT_DIR"
 FEATURES_DIRECTORY = Path("docs") / "features"
@@ -37,7 +37,7 @@ RUNNING_STATUS = "RUNNING"
 MAX_FAILED_RUNS = 3
 RUNNING_MARKER_MAX_AGE_SECONDS = 75 * 60
 APPROVED_PREFIX = "yes"
-CHECKS_VARIABLE = "MIDNIGHT_CHECKS"
+CHECKS_VARIABLE = "WORKFLOW_CHECKS"
 AFTER_APPROVAL_PHASES = ("BUILD", "TESTS", "GATE-A", "GATE-B", "VIDEO", "FINISH", "SUMMARY")
 FRONTEND_SECTION = "Frontend"
 FRONTEND_OPTION_PATTERN = re.compile(

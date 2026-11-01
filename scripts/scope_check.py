@@ -2,7 +2,7 @@
 """
 Reads which files each slice of plan.md and the test plan may touch, and finds changed files outside them.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

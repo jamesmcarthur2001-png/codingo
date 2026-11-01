@@ -5,7 +5,7 @@ import pytest
 
 from check_python_conventions import check_python_file
 
-HEADER = '"""\nService manager for entities.\n\n:author: midnight-workflow\n:date: 16/10/2026\n"""\n'
+HEADER = '"""\nService manager for entities.\n\n:author: claude-workflow\n:date: 16/10/2026\n"""\n'
 
 COMPLIANT_SOURCE = HEADER + '''# ----- Imports ----- #
 
@@ -98,7 +98,7 @@ def test_check_python_file_violating_snippet_reports_rule(
 @pytest.mark.parametrize("source,expected_rule_id", [
     ("import os\n", "PY-07"),
     ('"""\nNo author or date.\n"""\nimport os\n', "PY-07"),
-    ('"""\nTwo-digit year.\n\n:author: midnight-workflow\n:date: 16/10/26\n"""\nimport os\n', "PY-07"),
+    ('"""\nTwo-digit year.\n\n:author: claude-workflow\n:date: 16/10/26\n"""\nimport os\n', "PY-07"),
     (HEADER + "\n# ----- Imports ----- #\n\nimport os\n", "PY-09"),
     (HEADER + "# ----- Imports ----- #\nimport os\n", "PY-09"),
     (HEADER + "# ----- Imports ----- #\n\nimport os\n# ----- Consts ----- #\n\nSIZE = 1\n", "PY-10"),

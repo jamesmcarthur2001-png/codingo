@@ -1,4 +1,4 @@
-# Workflow proposal: midnight-api on Qwen 3.8 27B
+# Workflow proposal: the monorepo on Qwen 3.8 27B
 
 Status: v8, built · 01/11/2026 (v7 plus commit/MR title format, worktree closed at the end, triage-check before fixing, test database rule, team code rules)
 
@@ -16,7 +16,7 @@ Status: v8, built · 01/11/2026 (v7 plus commit/MR title format, worktree closed
 | 8 | Subagents | For exploration (3 in parallel, each exploring the whole scope) and, since v7, at most 2 reviewers in Gate B next to Beatrice (decision 14); Beatrice's own subagents aren't limited. The orchestrator plans, implements, writes tests and fixes by itself. |
 | 9 | Test plan | Exactly four columns: test name, what it checks, expected result, file. |
 | 10 | Beatrice | Two `claude -p` runs in parallel per round, so each can use its own subagents. Up to 5 rounds. |
-| 11 | Install | Ubuntu, user level: `install.sh` copies commands, agents and skills into `~/.claude/`, the scripts into `~/.claude/midnight-workflow/scripts/`, and merges the hooks into `~/.claude/settings.json`. Not a plugin, not Windows. |
+| 11 | Install | Ubuntu, user level: `install.sh` copies commands, agents and skills into `~/.claude/`, the scripts into `~/.claude/scripts/`, and merges the hooks into `~/.claude/settings.json`. Not a plugin, not Windows. |
 | 12 | Worktrees | Native git worktrees at `.claude/worktrees/<full branch name>`, made by `worktree.py create` (fetch the base, `git worktree add -b <branch> … origin/<base>`, or reuse the existing branch; never a second BTRC branch) and removed with the same logic. After creating it, the orchestrator calls Claude Code's `EnterWorktree`; each worktree keeps its own feature folder (`<worktree>/docs/features/<ticket>/`, written there from the start; nothing goes into the main checkout's `docs/`), and finishing runs inside the worktree; after the summary the orchestrator calls `ExitWorktree` and `worktree.py remove <T> --done`, which copies the feature folder to the main checkout's `docs/features/<T>/` and removes the worktree (the branch stays). `.worktreeinclude` files are copied in. `/feature … --no-worktree` works in the main checkout instead (switched to the branch; `Worktree:` empty, `Worktree mode: none`). |
 | 13 | Frontend scope | When exploration shows the frontend is touched, the first grill batch asks: a Playwright reviewer alongside Beatrice (recommended yes), a video at the end, an HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or docker, login). Answers go to `## Frontend` in state.md. Test credentials come only from seed/fixture files or the user. |
 | 14 | Review round | Each Gate B round starts, in one message: `run_beatrice.py` in the background (unchanged), the `conventions-reviewer` agent (changed lines only), and the `playwright-reviewer` agent when chosen (round 1, later only when frontend files changed). All findings go into one `triage.md` with a Source column; the 2/2 merge and the dismissed memory stay per source; max 5 rounds, round-5 handling unchanged. |
@@ -52,19 +52,19 @@ One Claude session, the **orchestrator**, runs the whole feature. You talk to it
 You type: `/feature BTRC-1234 "add CSV export to entities"`
 
 ### Before your approval (you answer questions)
-1. **Setup.** The orchestrator records the ticket, the branch name (`BTRC-1234-csv-export`), the base branch (the one you're on now, or the one you name), and runs `python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create BTRC-1234 --branch BTRC-1234-csv-export --base master`, which creates the native worktree `.claude/worktrees/BTRC-1234-csv-export` (inside the project, so edits there need no extra permission; `.claude/worktrees/` is in `.git/info/exclude`). With `--no-worktree`, it switches the main checkout to the branch instead. All of it goes into the worktree's `docs/features/BTRC-1234/state.md`.
+1. **Setup.** The orchestrator records the ticket, the branch name (`BTRC-1234-csv-export`), the base branch (the one you're on now, or the one you name), and runs `python3 "$HOME/.claude/scripts/worktree.py" create BTRC-1234 --branch BTRC-1234-csv-export --base master`, which creates the native worktree `.claude/worktrees/BTRC-1234-csv-export` (inside the project, so edits there need no extra permission; `.claude/worktrees/` is in `.git/info/exclude`). With `--no-worktree`, it switches the main checkout to the branch instead. All of it goes into the worktree's `docs/features/BTRC-1234/state.md`.
 2. **Explore.** Three explorer subagents run in parallel with the **same** task: explore the whole scope of the feature. Each writes its own `explore/explorer-<n>.md`. The orchestrator merges them into `context.md` (files involved) and `patterns.md` (how similar things are done today), marking each item with how many explorers found it (`3/3`, `2/3`, `1/3`). Items only one explorer found are the ones the others missed, so they're kept, and the orchestrator checks them in the code before relying on them.
 3. **Grill.** The orchestrator interviews you (§2.3). Every question starts by quoting your words for the requirement it's about. When the frontend is touched, the first batch also asks the frontend scope questions (decision 13); with an HTML preview, you see and change the mockups (decision 15) before the spec.
 4. **Spec and plan.** The orchestrator writes them itself, no subagent: `spec.md` (what will be built) and `plan.md` (tasks grouped into 2–4 slices, each listing the files it may touch).
 5. **You approve.** The last question you get.
 
 ### After your approval (no questions)
-6. **Build, slice by slice.** The orchestrator implements a slice, then runs `python3 "$HOME/.claude/midnight-workflow/scripts/check_slice.py" BTRC-1234 <slice>` (lint, types and scope, changed lines only). Failures come back as an exact `file:line` list; it fixes them (up to 2 tries) and moves on.
+6. **Build, slice by slice.** The orchestrator implements a slice, then runs `python3 "$HOME/.claude/scripts/check_slice.py" BTRC-1234 <slice>` (lint, types and scope, changed lines only). Failures come back as an exact `file:line` list; it fixes them (up to 2 tries) and moves on.
 7. **Tests.** It writes `test-plan.md` in the four-column format (§2.8), then the tests. A hook blocks any test that isn't in the plan. It runs the tests and changed-line coverage and fixes failures (up to 2 tries).
-8. **Gate A.** `python3 "$HOME/.claude/midnight-workflow/scripts/gate_a.py" BTRC-1234` checks everything Beatrice would reject before reading a line: lint, typecheck, all tests, 100% changed-line coverage (or an exemption with a reason in `state.md`), scope, no suppressions. Failures → fix (up to 2 tries).
-9. **Gate B, Beatrice.** The orchestrator runs `python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" BTRC-1234 <round>`, which starts your team leader's command unchanged in **two `claude -p` sessions in parallel** (§2.5) and merges their findings into `review/beatrice-<round>.md`. In the same message it starts the `conventions-reviewer` and, when chosen, the `playwright-reviewer` (decision 14); `review_round.py capture` stores their findings. The orchestrator marks each finding of every source `fix` or `dismiss: <reason pointing to a line or a rule>`, fixes, re-runs Gate A, and starts the next round. **Up to 5 rounds.**
+8. **Gate A.** `python3 "$HOME/.claude/scripts/gate_a.py" BTRC-1234` checks everything Beatrice would reject before reading a line: lint, typecheck, all tests, 100% changed-line coverage (or an exemption with a reason in `state.md`), scope, no suppressions. Failures → fix (up to 2 tries).
+9. **Gate B, Beatrice.** The orchestrator runs `python3 "$HOME/.claude/scripts/run_beatrice.py" BTRC-1234 <round>`, which starts your team leader's command unchanged in **two `claude -p` sessions in parallel** (§2.5) and merges their findings into `review/beatrice-<round>.md`. In the same message it starts the `conventions-reviewer` and, when chosen, the `playwright-reviewer` (decision 14); `review_round.py capture` stores their findings. The orchestrator marks each finding of every source `fix` or `dismiss: <reason pointing to a line or a rule>`, fixes, re-runs Gate A, and starts the next round. **Up to 5 rounds.**
 10. **Video** (when chosen, decision 16). One recorded Playwright run of the new behaviour.
-11. **Finish.** The orchestrator runs `python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" BTRC-1234` (§2.7): commit, pull --rebase on the base, push, wait for the pipeline, stop the branch's containers, remove the worktree, pull the base in the main checkout. On a conflict or a red pipeline the script stops with a clear code, the orchestrator fixes and runs it again (up to 2 times).
+11. **Finish.** The orchestrator runs `python3 "$HOME/.claude/scripts/finish_branch.py" BTRC-1234` (§2.7): commit, pull --rebase on the base, push, wait for the pipeline, stop the branch's containers, remove the worktree, pull the base in the main checkout. On a conflict or a red pipeline the script stops with a clear code, the orchestrator fixes and runs it again (up to 2 times).
 12. **Summary.** `summary.md`: what was built, every review finding (all sources) and what happened to it, the video path, and anything left for you.
 
 If a step hits its try limit, the orchestrator writes `BLOCKED: <reason>` in `state.md` and stops; the Stop hook lets it.
@@ -113,7 +113,7 @@ The Stop hook, `scripts/hooks/next_step.py` (your `WORKFLOW_IMPROVEMENTS.md` alr
 - Otherwise it blocks the stop and returns the next step from a fixed table, e.g. `Phase: GATE-B, round 2 → run run_beatrice.py BTRC-1234 2, then triage review/beatrice-2.md`. The table matches `/feature` word for word, and a test checks it.
 - A circuit breaker: after 8 blocks without `state.md` changing, it lets the orchestrator stop and writes `BLOCKED: no progress`. The count starts again whenever a stop is allowed.
 - Before your approval, it never blocks, so the grill stays a normal conversation.
-- It does nothing in the Beatrice `claude -p` sessions: `run_beatrice.py` starts them with `MIDNIGHT_ROLE=reviewer`, and every workflow hook exits right away when it sees that.
+- It does nothing in the Beatrice `claude -p` sessions: `run_beatrice.py` starts them with `WORKFLOW_ROLE=reviewer`, and every workflow hook exits right away when it sees that.
 
 About the disconnects themselves: I haven't checked the cause in your setup. It's usually a proxy or server timeout cutting a long streamed answer **(unverified)**. If they follow long answers, try a lower `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and a higher `API_TIMEOUT_MS` in `settings.json` → `env`.
 
@@ -138,7 +138,7 @@ Changed or added for your workflow:
 
 ### 2.4 Legacy code (P1)
 The likely cause, which I checked by reading the code: `scripts/hooks/post_edit_checks.py` runs the convention checker and ruff on the **whole file** after each edit, and answers `Fix every item below before continuing`. So every legacy file Claude touches comes back with a list of old violations to fix.
-1. The hook keeps only problems touching changed lines (`git diff -U0 <merge-base> -- <file>`; the whole file if it's new). Same for ruff and eslint. A `get_` name that existed in the base version isn't new. Because the hooks are user-level, it acts only while an approved feature runs (or with `MIDNIGHT_CHECKS=1`).
+1. The hook keeps only problems touching changed lines (`git diff -U0 <merge-base> -- <file>`; the whole file if it's new). Same for ruff and eslint. A `get_` name that existed in the base version isn't new. Because the hooks are user-level, it acts only while an approved feature runs (or with `WORKFLOW_CHECKS=1`).
 2. Root CLAUDE.md scope rule (draft in §4.2).
 3. Scope check (in `check_slice.py` and Gate A): fails on files outside the slice's allowed list, and lists changed **existing** lines as `file:line` so the orchestrator can redo them. Nothing is reverted automatically.
 4. Each convention skill starts with: "Applies to code you write or change. Never to unchanged lines."
@@ -147,10 +147,10 @@ The likely cause, which I checked by reading the code: `scripts/hooks/post_edit_
 ### 2.5 Beatrice (P2)
 **How the command runs: two `claude -p` sessions per round.** A subagent can't start subagents of its own, so if Beatrice ran as a subagent, any subagents her command uses wouldn't work. A `claude -p` session is a full session, so it can. The orchestrator runs one command, in the background (a run can take longer than a normal command's time limit), and is told when it finishes:
 ```
-python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" BTRC-1234 <round>
+python3 "$HOME/.claude/scripts/run_beatrice.py" BTRC-1234 <round>
 ```
 The script:
-1. Starts two sessions at the same time, in the worktree, with `MIDNIGHT_ROLE=reviewer` set:
+1. Starts two sessions at the same time, in the worktree, with `WORKFLOW_ROLE=reviewer` set:
    ```
    claude -p "Use the \`beatrice-code-review\` skill to review the branch <branch> against <base>. Write down your comments." --output-format json --permission-mode default \
      --allowedTools "Read,Grep,Glob,Agent,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(glab mr view:*),Bash(glab mr diff:*),Bash(npx nx lint:*),Bash(npx nx typecheck:*),Bash(npx nx test:*)" \
@@ -174,7 +174,7 @@ The loop:
 `guard_branch.py`, a hook that runs before every Bash command. When a command creates or renames a branch (`checkout -b/-B/--orphan`, `switch -c/-C/--create`, `branch <name>`, `branch -m`, `worktree add` with or without `-b`, `push <remote> <x>:<name>` but not deletes; also inside `bash -c`, after `VAR=`/`sudo`, in subshells), it runs `git fetch --prune` (15 s, no prompts; on failure it still checks the refs it has) and blocks the command if a branch with the same `BTRC-<n>` already exists under another name. No exceptions: if you really need a second one, you create it yourself.
 
 ### 2.7 Finish: how the commands run (P6)
-The orchestrator runs one command: `python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" BTRC-1234`. The script reads the branch, base, worktree, container project and compose files from `state.md`, checks the worktree is on the branch and the branch isn't the base, and runs, in order:
+The orchestrator runs one command: `python3 "$HOME/.claude/scripts/finish_branch.py" BTRC-1234`. The script reads the branch, base, worktree, container project and compose files from `state.md`, checks the worktree is on the branch and the branch isn't the base, and runs, in order:
 ```
 git add -A                                       # after a conflict instead: refuse while files are unmerged or hold
 git commit -m "BTRC-1234: <title from spec.md>"  #   <<<<<<< / >>>>>>>, then git add -u + git rebase --continue
@@ -380,7 +380,7 @@ Full rules: the vue-conventions skill. The ones that matter most:
 - `agents/conventions-reviewer.md`, `agents/playwright-reviewer.md` (v7), and the `html-mockups` skill (decision 15).
 - `run_beatrice.py`: new (§2.5). `agents/explorer.md`: explores the whole scope, writes `explore/explorer-<n>.md`.
 - `check_python_conventions.py`: full years; `get_` on new function names (PY-62, names in the base version and framework overrides are skipped); `or` used as a default (PY-56).
-- All of them are installed with `install.sh` (§0, decision 11); the hooks are user-level, so every workflow hook exits at once when `MIDNIGHT_ROLE=reviewer`, and the edit and test-plan hooks act only while an approved feature runs.
+- All of them are installed with `install.sh` (§0, decision 11); the hooks are user-level, so every workflow hook exits at once when `WORKFLOW_ROLE=reviewer`, and the edit and test-plan hooks act only while an approved feature runs.
 
 ---
 

@@ -122,7 +122,7 @@ def test_guard_branch_reviewer_role_allows(git_repository: Path, run_hook: Calla
     completed = run_hook(
         "guard_branch.py",
         bash_payload(git_repository, "git checkout -b BTRC-12-second-try"),
-        {"MIDNIGHT_ROLE": "reviewer"},
+        {"WORKFLOW_ROLE": "reviewer"},
     )
 
     assert completed.returncode == 0

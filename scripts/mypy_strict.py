@@ -2,7 +2,7 @@
 """
 Runs mypy --strict and drops only the missing-return-annotation errors of functions that return nothing.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 16/10/2026
 """
 # ----- Imports ----- #

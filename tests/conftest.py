@@ -14,7 +14,7 @@ sys.path.insert(0, str(SCRIPTS_DIRECTORY / "hooks"))
 
 command_runner = importlib.import_module("command_runner")
 
-WORKFLOW_VARIABLES = ("MIDNIGHT_ROLE", "CLAUDE_PROJECT_DIR", "MIDNIGHT_CHECKS")
+WORKFLOW_VARIABLES = ("WORKFLOW_ROLE", "CLAUDE_PROJECT_DIR", "WORKFLOW_CHECKS")
 STATE_TEMPLATE = """# {ticket}: add CSV export to entities
 
 Ticket: {ticket}

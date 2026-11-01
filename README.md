@@ -1,6 +1,6 @@
-# midnight-workflow
+# claude-workflow
 
-A Claude Code workflow for the midnight-api monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, midnight_models = shared models, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for at most 2 reviewers next to Beatrice (whose skill starts as many subagents as it wants). It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
+A Claude Code workflow for our monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, a shared models library, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for at most 2 reviewers next to Beatrice (whose skill starts as many subagents as it wants). It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
 
 ```
 /feature BTRC-1234 "add CSV export to entities" [base] [--no-worktree]
@@ -41,17 +41,17 @@ Requirements: `python3` ≥ 3.10, `git`, and in the monorepo `uv` (with `ruff`, 
 ./install.sh
 ```
 
-It copies, and records what it copied in `~/.claude/midnight-workflow/installed-files.txt`:
+It copies, and records what it copied in `~/.claude/workflow-installed-files.txt`:
 
 | From the repo | To |
 |---|---|
 | `commands/feature.md`, `map-services.md`, `map-library.md` | `~/.claude/commands/` (`/feature`, `/map-services`, `/map-library`) |
 | `agents/explorer.md`, `conventions-reviewer.md`, `playwright-reviewer.md`, `doc-auditor.md`, `skill-mapper.md` | `~/.claude/agents/` |
 | `skills/*` | `~/.claude/skills/` |
-| `scripts/**/*.py` | `~/.claude/midnight-workflow/scripts/` (executable) |
+| `scripts/**/*.py` | `~/.claude/scripts/` (executable) |
 | `settings/hooks.json` | merged into the `hooks` of `~/.claude/settings.json` |
 
-The settings merge backs up `settings.json` first (`settings.json.bak-<time>`), keeps every other key and hook, and replaces its own earlier entries, so running `install.sh` again updates without duplicates. A file it would overwrite that it didn't install (e.g. your own `~/.claude/skills/python-conventions`) is backed up under `~/.claude/midnight-workflow/backup/`.
+The settings merge backs up `settings.json` first (`settings.json.bak-<time>`), keeps every other key and hook, and replaces its own earlier entries, so running `install.sh` again updates without duplicates. A file it would overwrite that it didn't install (e.g. your own `~/.claude/skills/python-conventions`) is backed up under `~/.claude/workflow-backup/`. Hook entries from the old `~/.claude/midnight-workflow/` install are replaced too.
 
 ```bash
 ./uninstall.sh
@@ -60,7 +60,7 @@ The settings merge backs up `settings.json` first (`settings.json.bak-<time>`), 
 removes exactly the recorded files and the workflow's hook entries, and puts the backed-up files back.
 
 Then:
-1. Copy the CLAUDE.md drafts from `claude-md/` into midnight-api (see `claude-md/README.md`).
+1. Copy the CLAUDE.md drafts from `claude-md/` into the monorepo (see `claude-md/README.md`).
 2. Generate the service map once from the monorepo root: `/map-services`.
 3. Beatrice is a **skill**: `beatrice-code-review` in the repo's `.claude/skills/` or `~/.claude/skills/` (or the path in `Beatrice skill:` in state.md). It's never changed, and it gets no description: just "review the branch <Branch> against <Base> and write down your comments".
 
@@ -96,11 +96,11 @@ After `worktree.py create`, the orchestrator calls Claude Code's `EnterWorktree`
 
 ## The hooks
 
-All four are user-level, so they run in every repository. Each exits 0 at once when `MIDNIGHT_ROLE=reviewer`.
+All four are user-level, so they run in every repository. Each exits 0 at once when `WORKFLOW_ROLE=reviewer`.
 
 | Hook | When | What |
 |---|---|---|
-| `post_edit_checks.py` | After every Write/Edit | Only while an approved, unfinished feature is active for that repo (or with `MIDNIGHT_CHECKS=1`), and only for files in its code root (the worktree, or the main checkout with `--no-worktree`). Runs the convention checker + `ruff` (`.py`/`.pyi`) or `eslint` (`.vue`/`.ts`/`.js`/…), and the suppression check (code and tool configs). Reports **only problems touching changed lines**: `git diff -U0 <merge-base with the base> -- <file>`; the whole file when it's untracked. `get_` names that existed in the base version aren't reported. |
+| `post_edit_checks.py` | After every Write/Edit | Only while an approved, unfinished feature is active for that repo (or with `WORKFLOW_CHECKS=1`), and only for files in its code root (the worktree, or the main checkout with `--no-worktree`). Runs the convention checker + `ruff` (`.py`/`.pyi`) or `eslint` (`.vue`/`.ts`/`.js`/…), and the suppression check (code and tool configs). Reports **only problems touching changed lines**: `git diff -U0 <merge-base with the base> -- <file>`; the whole file when it's untracked. `get_` names that existed in the base version aren't reported. |
 | `guard_test_plan.py` | Before Write/Edit of a test file | Only for an approved, unfinished feature: blocks a new test whose exact name isn't in the first column of `test-plan.md`. |
 | `guard_branch.py` | Before every Bash command, everywhere | On `checkout -b/-B/--orphan`, `switch -c/-C/--create[=]`, `branch <name>`, `branch -m`, `worktree add [-b]` (also without `-b`, where the branch is the folder name), `push <remote> <src>:<name>` (not deletes) — also inside `bash -c "…"`, after `VAR=…`/`sudo`/`env`, in `( … )` or after `&` — it fetches (15 s, no prompts) and blocks if another local or remote branch has the same `BTRC-<n>`. If the fetch fails it still checks and says the remote refs may be stale. |
 | `next_step.py` | Stop | After approval, refuses to stop until `state.md` says `DONE` or `BLOCKED`, and returns the next step for the current `Phase`. It records the orchestrator's `session_id` as `Session:` on the first stop and ignores other sessions. Never blocks before approval or while a long script runs (`.running.json`). Circuit breaker: after 8 blocks without `state.md` changing it writes `BLOCKED: no progress`; the counter resets whenever a stop is allowed. |
@@ -109,12 +109,12 @@ Hooks also accept `"onFailure": "block"` (block the action when the hook itself 
 
 ### Environment variables
 
-- `MIDNIGHT_ROLE=reviewer`: set by `run_beatrice.py` for the two `claude -p` Beatrice sessions, so the reviewers aren't blocked, checked or kept running by the orchestrator's hooks. Don't set it in your own sessions.
-- `MIDNIGHT_CHECKS=1`: run the post-edit checks outside a feature too (e.g. while you edit by hand).
+- `WORKFLOW_ROLE=reviewer`: set by `run_beatrice.py` for the two `claude -p` Beatrice sessions, so the reviewers aren't blocked, checked or kept running by the orchestrator's hooks. Don't set it in your own sessions.
+- `WORKFLOW_CHECKS=1`: run the post-edit checks outside a feature too (e.g. while you edit by hand).
 
 ## The workflow scripts
 
-Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files and Beatrice skill from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `run_beatrice`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
+Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files and Beatrice skill from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `run_beatrice`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
 
 | Script | Does | Exit codes |
 |---|---|---|
@@ -129,10 +129,10 @@ Each script counts failed runs in `Tries:`; the third failed run of the same ste
 
 Outside the workflow you can still run:
 ```bash
-python3 "$HOME/.claude/midnight-workflow/scripts/check_python_conventions.py" app/
+python3 "$HOME/.claude/scripts/check_python_conventions.py" app/
 ```
 ```bash
-python3 "$HOME/.claude/midnight-workflow/scripts/mypy_strict.py" app/
+python3 "$HOME/.claude/scripts/mypy_strict.py" app/
 ```
 
 ## Not verified offline
@@ -150,7 +150,7 @@ These need checking in the work environment; each has an isolated spot to adjust
 | The Playwright reviewer and the video: no frontend repo or Playwright on this machine. The agent loads Playwright from the frontend folder with `require(require.resolve('playwright', { paths: [...] }))` from a script in `docs/features/<T>/playwright/`, uses only preinstalled browsers, and mocks the API with `page.route()` or uses the branch's docker stack. `recordVideo` output naming, the dev-server start/stop and the login flow need a real run. | `agents/playwright-reviewer.md`, `commands/feature.md` step V |
 | The HTML mockups use CSS `:has()` for the theme/RTL/state switches (no JavaScript); the offline browser must support it (Chromium 105+, Firefox 121+). | `skills/html-mockups/templates/mockup.html` |
 | `.claude/rules/*.md` with a `paths:` glob, as an alternative to folder CLAUDE.md files. | `claude-md/README.md` |
-| The midnight-api paths in `claude-md/`, the `## Commands` lines, `Compose files`, and the Beatrice skill path (when it isn't in a skills folder). | each feature's `state.md` |
+| The monorepo paths in `claude-md/`, the `## Commands` lines, `Compose files`, and the Beatrice skill path (when it isn't in a skills folder). | each feature's `state.md` |
 | Add `-v` to `docker compose down` only if the branch's volumes hold nothing you need. | `finish_branch.py` `stop_containers` |
 
 ## Developing

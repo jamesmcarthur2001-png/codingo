@@ -12,7 +12,7 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 ## Rules (always)
 1. `state.md` is the truth. Update it after every step, before the next one. After a compaction, read it again.
 2. Run every script from the **code root** (the session's directory after `EnterWorktree`; the scripts find the feature folder from there):
-   `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py" ...`
+   `python3 "$HOME/.claude/scripts/<name>.py" ...`
 3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder lives in the worktree too, at `<worktree>/docs/features/<Ticket>/` (it is written there from the start; when the worktree is closed at the end, `worktree.py remove` copies it to the main checkout's `docs/features/<Ticket>/`); every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
 4. Scope: new code follows the conventions. Existing lines change only when the task needs them changed. Never rename, reformat or "fix" existing code you don't need to touch.
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
@@ -73,7 +73,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 4. Create the code root **first**, so the feature's docs are born in it. It also keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`:
    - Without `--no-worktree` (always a worktree):
      ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket> --branch "<Branch>" --base "<Base>" --title "<Title>"
+     python3 "$HOME/.claude/scripts/worktree.py" create <Ticket> --branch "<Branch>" --base "<Base>" --title "<Title>"
      ```
      It fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or reuses an existing `<Branch>`. It copies the gitignored files listed in `.worktreeinclude` (e.g. `.env`), and writes the feature folder **inside the worktree**: `<worktree>/docs/features/<Ticket>/state.md` (Ticket, Title, Branch, Base, `Repository:`, `Worktree:`, `Worktree mode: worktree`, `Phase: SETUP`) and `<worktree>/docs/features/.active`. Nothing is written in the main checkout's `docs/`. Its last line names the worktree's absolute path.
      Then call the **`EnterWorktree`** tool with that absolute path (a path under `.claude/worktrees/` needs no approval). It moves the session's directory, write access and project config (the folder `CLAUDE.md` files, settings) into the worktree. From now on, work only there; every `docs/features/<Ticket>/` path is the worktree's.
@@ -97,7 +97,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
     Title: add CSV export to entities
     Branch: BTRC-1234-csv-export
     Base: master
-    Repository: /home/<you>/work/midnight-api
+    Repository: /home/<you>/work/<repo>
     Worktree: .claude/worktrees/BTRC-1234-csv-export
     Worktree mode: worktree
     Compose project: btrc-1234
@@ -152,8 +152,8 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 
 ## G. Grill (Phase: GRILL)
 1. Load the `grill-with-docs` skill and follow it fully with the user. Input: the description, `context.md`, `patterns.md`.
-2. **Frontend scope** (only when `- Touches frontend: yes`): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): Playwright reviewer, video (always suggest it, recommended yes; `- Video: no` only when the user says they don't want one), HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
-3. **HTML preview** (only when `- HTML preview: yes`): before the spec, load the `html-mockups` skill and write `docs/features/<Ticket>/mockups/<screen>.html` for each new or changed screen (plain HTML/CSS, no CDN, light/dark toggle, RTL toggle, empty/loading/error states). Tell the user the paths and ask for changes in the next grill round. Repeat until they approve the mockups.
+2. **Frontend scope** (only when `- Touches frontend: yes`, and then always): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): a frontend (Playwright) reviewer, a Playwright video of the feature, and an HTML preview of the design with options. All three are always suggested, recommended yes, and are `no` only when the user says they don't want them; and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
+3. **HTML preview** (only when `- HTML preview: yes`): before the spec, load the `html-mockups` skill and write `docs/features/<Ticket>/mockups/<screen>.html` for each new or changed screen, dialog or component, with **2–3 design options** each for the user to choose from (plain HTML/CSS, no CDN, light/dark toggle, RTL toggle, empty/loading/error states). Tell the user the paths and ask for changes in the next grill round. Repeat until they approve the mockups.
 4. Every inconsistency `I-n` must end as a decision.
 5. Ask for the path of Beatrice's skill here if setup didn't find it.
 6. It ends when `grill-notes.md` has no open or assumed unknowns and the user confirmed the readback. Set `Phase: SPEC`.
@@ -192,7 +192,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 5. Implement the tasks. Change only files in the slice's `Files:`. The post-edit hook reports problems on your changed lines: fix them right away.
 6. Run:
    ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/check_slice.py" <Ticket> <Slice>
+   python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>
    ```
    Exit 0: it already set the next `Slice` (or `Phase: TESTS` after the last slice). Continue.
    Exit 1: fix every listed `file:line`, run it again. A file outside the list: revert it, or add it to the slice's `Files:` with a reason in `## Log`.
@@ -220,7 +220,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 ## A. Gate A (Phase: GATE-A)
 1. Run (it can take long; use the maximum Bash timeout, 600000 ms, or run it in the background and wait):
    ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/gate_a.py" <Ticket>
+   python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>
    ```
    It runs lint, typecheck, tests, changed-line coverage, scope and suppression checks.
 2. Exit 0: it set the next phase. Normally `Phase: GATE-B` (go to GB). After round 5 was triaged it sets `Phase: VIDEO` (when `- Video: yes`) or `Phase: FINISH`.
@@ -232,18 +232,18 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 2. Start the round's reviews **in one message** (they run in parallel):
    - Unless `review/beatrice-<Round>.md` exists: Beatrice **in the background** (Bash `run_in_background: true`):
      ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" <Ticket> <Round>
+     python3 "$HOME/.claude/scripts/run_beatrice.py" <Ticket> <Round>
      ```
      Exit 1: both runs failed; run it again (the script blocks after 3 failures). Exit 2: setup error; fix the cause, run again.
    - The `conventions-reviewer` agent, with: feature directory, code root, `Base`, round. It writes `review/conventions-<Round>.md`.
    - The `playwright-reviewer` agent, only when `- Playwright reviewer: yes` and
      ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" playwright-needed <Ticket> <Round>
+     python3 "$HOME/.claude/scripts/review_round.py" playwright-needed <Ticket> <Round>
      ```
      prints `yes` (round 1, or frontend files changed since its last run). Give it: feature directory, code root, round, and the `## Frontend` answers (plus the test password if the user typed it; never write it to a file). It writes `review/playwright-<Round>.md`.
 3. When all have finished, before fixing anything, store the reviewers' findings with their flagged lines:
    ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" capture <Ticket> <Round>
+   python3 "$HOME/.claude/scripts/review_round.py" capture <Ticket> <Round>
    ```
 4. Read every source: `review/beatrice-<Round>.md` (findings `## R<round>-<i> | <2/2 or 1/2> | <file:line> | <rule>`), `review/conventions-<Round>.md` (`## C<round>-<i> | <file:line> | <rule>`) and `review/playwright-<Round>.md` (`## P<round>-<i> | <file:line> | <rule>`).
 5. **Map every problem first, then fix.** Don't fix anything while you read. For every finding, open the code and check it yourself. A Beatrice 1/2 counts as much as 2/2. A finding marked "Dismissed in round N, because …" keeps that decision unless the line changed. Append to `review/triage.md` (the `#` column is the finding's id, the Source column says who reported it):
@@ -258,7 +258,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    `dismiss` needs a Reason pointing to a line, a rule or a screenshot. No `|` inside a cell. Marks is `-` for conventions and playwright.
    When the table is complete, check nothing is missing:
    ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" triage-check <Ticket> <Round>
+   python3 "$HOME/.claude/scripts/review_round.py" triage-check <Ticket> <Round>
    ```
    Exit 1 lists the findings without a row: add them, run it again. Exit 0: now fix **every** `fix` row, one after another, then run the checks once.
 6. Next (the round rules count every source together):
@@ -277,7 +277,7 @@ Stay in the code root (the worktree) for this step.
 0. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`. Without `Commit title:` the script uses `feat(<changed services>): <spec title>`; a title in another format is a setup error (exit 2).
 1. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
    ```
-   python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>
+   python3 "$HOME/.claude/scripts/finish_branch.py" <Ticket>
    ```
    It checks the code root is on `Branch` (never the base), commits with the title only, `git pull --rebase origin <Base>`, force-pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline (`glab ci status`) until it **passes**, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. With `Worktree mode: none` it also updates the base in the main checkout. It sets `Phase: SUMMARY`; the worktree is closed in step Z. Running it again resumes.
    The feature isn't finished until the pipeline of the pushed commit passed. Never write the summary on a failed or unfinished pipeline.
@@ -318,7 +318,7 @@ Stay in the code root (the worktree) for this step.
 3. Close the worktree (it sets `Status: DONE`; the Stop hook keeps you going until it does):
    - Worktree feature: call **`ExitWorktree`** with action `keep` (the script removes it), then from the main checkout run
      ```
-     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove <Ticket> --done
+     python3 "$HOME/.claude/scripts/worktree.py" remove <Ticket> --done
      ```
      It copies the feature folder to `<main checkout>/docs/features/<Ticket>/`, runs `git worktree remove` (the branch stays) and sets `Status: DONE` in the copy. If `ExitWorktree` isn't available, run the same command from the worktree, and run nothing in it afterwards.
      Exit 1 (uncommitted files): show `git status` of the worktree, and stop with that message.

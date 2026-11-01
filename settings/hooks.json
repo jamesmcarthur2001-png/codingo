@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/guard_test_plan.py\"",
+          "command": "python3 \"$HOME/.claude/scripts/hooks/guard_test_plan.py\"",
           "timeout": 15
         }
       ]
@@ -15,7 +15,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/guard_branch.py\"",
+          "command": "python3 \"$HOME/.claude/scripts/hooks/guard_branch.py\"",
           "timeout": 45
         }
       ]
@@ -27,7 +27,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/post_edit_checks.py\"",
+          "command": "python3 \"$HOME/.claude/scripts/hooks/post_edit_checks.py\"",
           "timeout": 60
         }
       ]
@@ -38,7 +38,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "python3 \"$HOME/.claude/midnight-workflow/scripts/hooks/next_step.py\"",
+          "command": "python3 \"$HOME/.claude/scripts/hooks/next_step.py\"",
           "timeout": 15
         }
       ]

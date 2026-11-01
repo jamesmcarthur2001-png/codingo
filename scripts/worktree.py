@@ -12,7 +12,7 @@ The feature folder lives in the code root: `<worktree>/docs/features/<ticket>` (
 an older feature folder found in the main checkout is moved into the worktree. Running it again when the worktree exists only records it.
 Exit codes: 0 done, 1 git failed, 2 setup error (no feature and no --branch/--base, another branch for the ticket).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 29/10/2026
 """
 # ----- Imports ----- #

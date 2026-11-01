@@ -2,7 +2,7 @@
 """
 PreToolUse hook: blocks adding tests that are not listed in the running feature's test-plan.md (exact names, first column).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 16/10/2026
 """
 # ----- Imports ----- #

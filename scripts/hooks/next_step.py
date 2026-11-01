@@ -7,7 +7,7 @@ session_id as `Session:` in state.md, and later stops from other sessions are le
 Circuit breaker: after 8 blocks in a row without state.md changing, it writes `BLOCKED: no progress` and lets the stop happen.
 The payload's `stop_hook_active` flag isn't used; the breaker is what ends a loop of blocks.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #
@@ -26,7 +26,7 @@ from feature_state import AFTER_APPROVAL_PHASES, FeatureState, PLAYWRIGHT_REVIEW
 BLOCK_COUNTER_NAME = ".stop-hook.json"
 MAX_BLOCKS_WITHOUT_PROGRESS = 8
 MAX_BEATRICE_ROUNDS = 5
-SCRIPTS_PATH = "$HOME/.claude/midnight-workflow/scripts"
+SCRIPTS_PATH = "$HOME/.claude/scripts"
 STEP_TEMPLATES = {
     "BUILD": (
         "Implement slice {slice} of plan.md (only its Files). Then run "

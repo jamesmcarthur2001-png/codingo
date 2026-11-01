@@ -10,7 +10,7 @@ import pytest
 
 REPO_DIRECTORY = Path(__file__).resolve().parents[2]
 HOOKS_SNIPPET = REPO_DIRECTORY / "settings" / "hooks.json"
-INSTALLED_SCRIPTS_PREFIX = "$HOME/.claude/midnight-workflow/scripts/"
+INSTALLED_SCRIPTS_PREFIX = "$HOME/.claude/scripts/"
 IS_POSIX = sys.platform != "win32" and shutil.which("bash") is not None
 OTHER_HOOK = {"type": "command", "command": "echo mine"}
 
@@ -39,7 +39,7 @@ def test_hooks_snippet_uses_python3_and_existing_scripts():
 
     assert len(commands) == 4
     for command in commands:
-        assert command.startswith('python3 "$HOME/.claude/midnight-workflow/scripts/hooks/')
+        assert command.startswith('python3 "$HOME/.claude/scripts/hooks/')
         script_path = command.split('"')[1].removeprefix(INSTALLED_SCRIPTS_PREFIX)
         assert (REPO_DIRECTORY / "scripts" / script_path).is_file(), script_path
 
@@ -118,7 +118,7 @@ def test_install_twice_then_uninstall_restores_the_user_files(tmp_path: Path):
     second = run_script("install.sh", tmp_path)
 
     settings = json.loads((claude_directory / "settings.json").read_text(encoding="utf-8"))
-    installed_script = claude_directory / "midnight-workflow" / "scripts" / "hooks" / "next_step.py"
+    installed_script = claude_directory / "scripts" / "hooks" / "next_step.py"
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
     assert (claude_directory / "commands" / "feature.md").is_file()
@@ -127,8 +127,8 @@ def test_install_twice_then_uninstall_restores_the_user_files(tmp_path: Path):
     assert (claude_directory / "agents" / "conventions-reviewer.md").is_file()
     assert (claude_directory / "agents" / "playwright-reviewer.md").is_file()
     assert (claude_directory / "skills" / "html-mockups" / "templates" / "mockup.html").is_file()
-    assert (claude_directory / "midnight-workflow" / "scripts" / "worktree.py").is_file()
-    assert (claude_directory / "midnight-workflow" / "scripts" / "review_round.py").is_file()
+    assert (claude_directory / "scripts" / "worktree.py").is_file()
+    assert (claude_directory / "scripts" / "review_round.py").is_file()
     assert os.access(installed_script, os.X_OK)
     assert settings["model"] == "local"
     assert len(hook_commands(settings["hooks"])) == 5
@@ -140,14 +140,15 @@ def test_install_twice_then_uninstall_restores_the_user_files(tmp_path: Path):
     assert uninstalled.returncode == 0, uninstalled.stderr
     assert user_skill.read_text(encoding="utf-8") == "my own skill\n"
     assert not (claude_directory / "commands" / "feature.md").exists()
-    assert not (claude_directory / "midnight-workflow").exists()
+    assert not (claude_directory / "scripts" / "worktree.py").exists()
+    assert not (claude_directory / "workflow-installed-files.txt").exists()
     assert hook_commands(settings["hooks"]) == ["echo mine"]
 
 
 @pytest.mark.skipif(not IS_POSIX, reason="the installed hook runs with the Ubuntu layout")
 def test_installed_stop_hook_runs_from_the_install_layout(tmp_path: Path):
     run_script("install.sh", tmp_path)
-    hook_path = tmp_path / ".claude" / "midnight-workflow" / "scripts" / "hooks" / "next_step.py"
+    hook_path = tmp_path / ".claude" / "scripts" / "hooks" / "next_step.py"
 
     completed = subprocess.run(
         [str(hook_path)],

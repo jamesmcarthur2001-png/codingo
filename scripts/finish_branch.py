@@ -10,7 +10,7 @@ Every step checks whether it is still needed (and finished steps are recorded un
 Exit codes: 0 done, 10 rebase conflict, 20 pipeline failed, 30 push rejected (someone else pushed),
 1 another error, 2 setup error (state.md fields, wrong branch checked out, or another long step running).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 29/10/2026
 """
 # ----- Imports ----- #
@@ -69,7 +69,7 @@ DEFAULT_COMMIT_TYPE = "feat"
 SCOPE_FOLDERS = ("services", "libs", "apps")
 REBASE_STATE_DIRECTORIES = ("rebase-merge", "rebase-apply")
 LOCAL_REFS_PREFIX = "refs/heads/"
-REMOVE_COMMAND = 'python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove {ticket}'
+REMOVE_COMMAND = 'python3 "$HOME/.claude/scripts/worktree.py" remove {ticket}'
 
 # ----- Classes ----- #
 

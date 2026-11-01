@@ -5,7 +5,7 @@ import pytest
 
 from conftest import git
 
-COMPLIANT_SOURCE = '"""\nEntities.\n\n:author: midnight-workflow\n:date: 16/10/2026\n"""\n# ----- Imports ----- #\n\nimport os\n\n# ----- Consts ----- #\n\nSEPARATOR = os.sep\n'
+COMPLIANT_SOURCE = '"""\nEntities.\n\n:author: claude-workflow\n:date: 16/10/2026\n"""\n# ----- Imports ----- #\n\nimport os\n\n# ----- Consts ----- #\n\nSEPARATOR = os.sep\n'
 VIOLATING_SOURCE = COMPLIANT_SOURCE + "\n# ----- Functions ----- #\n\n\ndef save_entity(entity) -> None:\n    print(os.sep, entity)\n"
 LEGACY_SOURCE = VIOLATING_SOURCE
 LEGACY_CALL_SOURCE = COMPLIANT_SOURCE + "\n# ----- Functions ----- #\n\n\ndef build_entity(name: str) -> dict[str, str]:\n    return dict(name=name, kind='entity', owner='nobody', status='active')\n"
@@ -48,7 +48,7 @@ def test_post_edit_checks_forced_without_feature_blocks_with_rule_ids(
     completed = run_hook(
         "post_edit_checks.py",
         {"tool_name": "Edit", "tool_input": {"file_path": str(path)}},
-        {"MIDNIGHT_CHECKS": "1"},
+        {"WORKFLOW_CHECKS": "1"},
     )
 
     assert completed.returncode == 2
@@ -62,7 +62,7 @@ def test_post_edit_checks_forced_compliant_file_allows(write_python_file: Callab
     completed = run_hook(
         "post_edit_checks.py",
         {"tool_name": "Write", "tool_input": {"file_path": str(path)}},
-        {"MIDNIGHT_CHECKS": "1"},
+        {"WORKFLOW_CHECKS": "1"},
     )
 
     assert completed.returncode == 0
@@ -202,7 +202,7 @@ def test_post_edit_checks_reviewer_role_allows(feature_repository: Path, run_hoo
     completed = run_hook(
         "post_edit_checks.py",
         edit_payload(feature_repository, path),
-        {"MIDNIGHT_ROLE": "reviewer"},
+        {"WORKFLOW_ROLE": "reviewer"},
     )
 
     assert completed.returncode == 0

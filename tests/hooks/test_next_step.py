@@ -137,7 +137,7 @@ def test_next_step_stale_running_marker_blocks(tmp_path: Path, make_feature_stat
 def test_next_step_reviewer_role_allows(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
     make_feature_state(tmp_path)
 
-    completed = run_hook("next_step.py", stop_payload(tmp_path), {"MIDNIGHT_ROLE": "reviewer"})
+    completed = run_hook("next_step.py", stop_payload(tmp_path), {"WORKFLOW_ROLE": "reviewer"})
 
     assert decision(completed) == {}
 
@@ -226,15 +226,15 @@ def test_next_step_phases_match_feature_command():
 @pytest.mark.parametrize(
     "fragment",
     [
-        'python3 "$HOME/.claude/midnight-workflow/scripts/check_slice.py" <Ticket> <Slice>',
-        'python3 "$HOME/.claude/midnight-workflow/scripts/gate_a.py" <Ticket>',
-        'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" <Ticket> <Round>',
-        'python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>',
+        'python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>',
+        'python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>',
+        'python3 "$HOME/.claude/scripts/run_beatrice.py" <Ticket> <Round>',
+        'python3 "$HOME/.claude/scripts/finish_branch.py" <Ticket>',
         "keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
         "If `review/triage.md` already has `## Round <Round>`",
-        'python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" capture <Ticket> <Round>',
-        'python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" playwright-needed <Ticket> <Round>',
-        'python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create <Ticket>',
+        'python3 "$HOME/.claude/scripts/review_round.py" capture <Ticket> <Round>',
+        'python3 "$HOME/.claude/scripts/review_round.py" playwright-needed <Ticket> <Round>',
+        'python3 "$HOME/.claude/scripts/worktree.py" create <Ticket>',
         "The `conventions-reviewer` agent",
         "The `playwright-reviewer` agent",
         "| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |",
@@ -254,7 +254,7 @@ def test_next_step_gate_b_text_matches_the_round_five_rule(tmp_path: Path, make_
 
     assert "keep `Round: 5`, `Phase: GATE-A`" in reason
     assert "already has `## Round 5`" in reason
-    assert 'python3 "$HOME/.claude/midnight-workflow/scripts/run_beatrice.py" BTRC-1234 5' in reason
+    assert 'python3 "$HOME/.claude/scripts/run_beatrice.py" BTRC-1234 5' in reason
 
 
 def set_frontend(feature_directory: Path, *option_lines: str):

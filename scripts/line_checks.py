@@ -2,7 +2,7 @@
 """
 Runs the convention checker, ruff, eslint, mypy and the suppression check, keeping only problems on changed lines.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

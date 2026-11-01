@@ -60,13 +60,13 @@ Go through every item and mark it covered or N/A. Group related items into one r
 - [ ] Git: anything beyond the defaults (one branch per BTRC-n, finished by `finish_branch.py`)
 
 ## Frontend scope
-Only when state.md's `## Frontend` says `- Touches frontend: yes`. Add these to the **first** batch, each with a recommendation, opening with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
+Only when state.md's `## Frontend` says `- Touches frontend: yes`, and then **always**: every frontend feature gets all three questions below in the **first** batch, each with a recommendation, opening with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
 
 | Option | Question | Recommendation |
 |---|---|---|
-| `Playwright reviewer` | "Run a Playwright reviewer that opens the app and checks the new behaviour, alongside Beatrice?" | Yes |
-| `Video` | "Record a video of the new behaviour at the end?" Always ask it when the frontend is touched. | Yes. Write `- Video: no` only when the user says they don't want one |
-| `HTML preview` | "See an HTML preview of how it will look before I write the spec?" Ask **only** for new views, dialogs or layout changes; otherwise write `- HTML preview: no` without asking. | Yes for a new view or dialog |
+| `Playwright reviewer` | "Send a frontend reviewer that opens the app in a browser and checks the new behaviour?" | Yes |
+| `Video` | "Record a Playwright video of the feature at the end?" | Yes. Write `- Video: no` only when the user says they don't want one |
+| `HTML preview` | "I'll show you how the changed parts will look, with a few design options to choose from, before I write the spec. OK?" Ask it for **every** frontend change, also small ones (a new column, button, field or message). | Yes. Write `- HTML preview: no` only when the user says they don't want it |
 
 If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the `service-map` skill and the frontend's `package.json`, and recommend one:
 - `Dev server`: the command and its folder, e.g. `npm run dev` in `frontend/`.
@@ -74,7 +74,7 @@ If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the
 - `Backend`: `mocked` (Playwright `page.route()` mocks, as in `browser-test-conventions`; recommended, it needs nothing running) or `docker` (the branch's local stack, `docker compose -p <Compose project>`).
 - `Login`: the test user, if the app needs one, and where its password comes from. Test credentials come **only** from the project's seed or fixture files (record the file path, e.g. `- Login: admin@example.test (password: services/evermore/tests/seed/users.py)`) or from the user. Never write a password the user typed into state.md or any file; the orchestrator passes it to the reviewer in its prompt.
 
-When `HTML preview` is yes, the mockups (the `html-mockups` skill) are shown to the user in the following rounds, and their changes are part of the grill.
+When `HTML preview` is yes, the mockups (the `html-mockups` skill) are shown in the next grill round: for each changed screen, dialog or component, **2–3 design options** side by side (layout, placement, wording), each with a short note on what it's good at, and a recommendation. The user picks one per screen (or mixes them); the chosen option is then refined in the following rounds until they approve it.
 
 ## Readback
 When no unknown is left, write a **readback** of 5–8 bullets: what will be built, what won't, and the riskiest decision, each pointing to the R-n it comes from. Ask one final question: "Is this what you want?" with the options "Yes, write the spec (Recommended)" and "No, I'll correct it". Loop until the user confirms.

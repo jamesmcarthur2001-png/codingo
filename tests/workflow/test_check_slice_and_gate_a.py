@@ -11,7 +11,7 @@ import gate_a
 from conftest import FakeCommands, failed, git, ok
 from feature_state import FeatureState
 
-HEADER = '"""\nEntities.\n\n:author: midnight-workflow\n:date: 16/10/2026\n"""\n# ----- Imports ----- #\n\nimport os\n\n# ----- Functions ----- #\n\n\n'
+HEADER = '"""\nEntities.\n\n:author: claude-workflow\n:date: 16/10/2026\n"""\n# ----- Imports ----- #\n\nimport os\n\n# ----- Functions ----- #\n\n\n'
 LEGACY_SOURCE = HEADER + "def save_entity(entity) -> None:\n    print(os.sep, entity)\n"
 CLEAN_ADDITION = '\n\ndef count_entities(entities: list[str]) -> int:\n    """\n    Count the entities.\n    """\n    return len(entities)\n'
 PLAN = "# Plan\n\n## Slice 1: backend\nFiles:\n- `app/entities.py`\n\n## Slice 2: tests\nFiles:\n- `tests/test_entities.py`\n"

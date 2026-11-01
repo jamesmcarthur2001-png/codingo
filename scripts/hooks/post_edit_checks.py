@@ -2,9 +2,9 @@
 """
 PostToolUse hook: runs the convention checker and linters on the file Claude just edited, and reports only problems on changed lines.
 
-It acts only while an approved, unfinished feature is active for the repository (or when MIDNIGHT_CHECKS=1 is set).
+It acts only while an approved, unfinished feature is active for the repository (or when WORKFLOW_CHECKS=1 is set).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 16/10/2026
 """
 # ----- Imports ----- #
@@ -53,7 +53,7 @@ def edited_file_problems(edited_path: Path, state: FeatureState | None) -> list[
     Check the edited file on the lines that differ from the base.
 
     :param edited_path: The file Claude just wrote.
-    :param state: The running feature, or None when MIDNIGHT_CHECKS=1 forced the check.
+    :param state: The running feature, or None when WORKFLOW_CHECKS=1 forced the check.
     :return: The problems on changed lines.
     :raises GitError: When git can't tell which lines changed.
     """

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Adds the midnight-workflow hooks to ~/.claude/settings.json, or removes them, without touching anything else.
+Adds the workflow hooks to ~/.claude/settings.json, or removes them, without touching anything else.
 
 Usage: python3 merge_settings.py add <settings.json> <hooks.json>
        python3 merge_settings.py remove <settings.json>
 `add` backs the settings file up first, drops this workflow's earlier hook entries and adds the current ones,
 so running it again never duplicates them. Entries are recognised by their script path.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #
@@ -21,7 +21,8 @@ from pathlib import Path
 
 # ----- Consts ----- #
 
-WORKFLOW_SCRIPT_MARKER = "/.claude/midnight-workflow/scripts/hooks/"
+WORKFLOW_HOOK_NAMES = ("guard_test_plan.py", "guard_branch.py", "post_edit_checks.py", "next_step.py")
+WORKFLOW_HOOK_FOLDERS = ("/.claude/scripts/hooks/", "/.claude/midnight-workflow/scripts/hooks/")
 HOOKS_KEY = "hooks"
 BACKUP_TIME_FORMAT = "%Y%m%d-%H%M%S"
 
@@ -38,7 +39,11 @@ class SettingsFileError(Exception):
 
 
 def is_workflow_hook(hook: object) -> bool:
-    return isinstance(hook, dict) and WORKFLOW_SCRIPT_MARKER in str(hook.get("command", ""))
+    return isinstance(hook, dict) and any(
+        f"{folder}{name}" in str(hook.get("command", ""))
+        for folder in WORKFLOW_HOOK_FOLDERS
+        for name in WORKFLOW_HOOK_NAMES
+    )
 
 
 def without_workflow_hooks(hooks: dict[str, object]) -> dict[str, object]:
@@ -136,7 +141,7 @@ def write_settings(path: Path, settings: dict[str, object]):
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Add or remove the midnight-workflow hooks in settings.json.",
+        description="Add or remove the workflow hooks in settings.json.",
     )
     parser.add_argument("action", choices=["add", "remove"])
     parser.add_argument("settings", type=Path)

@@ -4,7 +4,7 @@ Runs external commands (git, glab, docker, claude, project tools) for the workfl
 
 Every script calls `command_runner.run_command`, so tests replace that one function to mock the outside world.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

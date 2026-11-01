@@ -5,7 +5,7 @@ Checks one built slice: lint, types, suppressions and scope, on the lines the br
 Usage: python3 check_slice.py BTRC-1234 <slice>
 Exit codes: 0 passed, 1 problems found, 2 setup error (no feature, no such slice, or git failed).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

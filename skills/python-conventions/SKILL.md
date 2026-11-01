@@ -11,7 +11,13 @@ Strict conventions for Python backend development. Follow these rules whenever w
 
 Checklists: `references/checklist.md` is an index of short per-topic lists. Before each slice, load the lists for the topics the slice touches; reviewers go through all of them.
 
-Folder rules (twilight, midnight_models, evermore) live in their CLAUDE.md files, and sessions, transactions and indexes in the **`sql-conventions`** skill (§14).
+## The rules that matter most
+
+1. **Readable duplication over reuse (§16).** Session calls (`add`, `commit`, `flush`, `refresh`, `delete`, `begin_nested`), `try` / `except` blocks and ORM objects (models, fields, queries) are **never** turned into shared helpers, base models or factories. Write them out in every function and every class that needs them. A little repeated code is fine: each function and model then reads top to bottom, on its own.
+2. **No field-generating functions.** A model's fields are written in the model, never returned by a function.
+3. **No comments, ever (§4).** Needing a comment means the code can be simpler: name a variable or extract a well-named function instead.
+
+Folder rules (twilight, the shared models library, evermore) live in their CLAUDE.md files, and sessions, transactions and indexes in the **`sql-conventions`** skill (§14).
 
 ---
 
@@ -40,7 +46,7 @@ Use **`uv`** for every package and environment operation:
     - If you are not sure whether the type is clear, **always add the type annotation**.
 - **Static Verification**:
     - In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`, which drops only the errors the no-`-> None` rule causes) on the changed lines only.
-    - Outside the workflow, run `python3 "$HOME/.claude/midnight-workflow/scripts/check_python_conventions.py" <files>` and judge only the lines you changed. For types use `python3 "$HOME/.claude/midnight-workflow/scripts/mypy_strict.py" <package>`, never plain mypy.
+    - Outside the workflow, run `python3 "$HOME/.claude/scripts/check_python_conventions.py" <files>` and judge only the lines you changed. For types use `python3 "$HOME/.claude/scripts/mypy_strict.py" <package>`, never plain mypy.
     - Never add `-> None` to silence mypy.
 - **Optional Returns**: In a function annotated `-> X | None`, write `return None` explicitly. mypy rejects a bare `return` there ("Return value expected").
 
@@ -163,7 +169,7 @@ DOCSTRING EXPLANATION
 - **Every function has a docstring**: every function and method in application code has one, including small helpers, managers, and endpoints. Exceptions: `__init__`, and test functions and fixtures (their names explain them).
 - **Which fields**: functions with business logic get `:param:`, `:return:` (when they return a value), and `:raises:` (when they raise). Small helpers without business logic may have only the description.
 - **Never mention past implementations**: Explain *why* the code works this way *now*, never what it used to do.
-- **No code comments**: never write `#` comments. Names, types, and docstrings explain the code. The only `#` lines are the section banners (§3).
+- **No code comments, never**: no `#` comments at all, not even "just one" to explain a tricky line. If a line seems to need a comment, it can be made simpler: put the value in a well-named variable, or move the step into a function whose name says what it does. Names, types, and docstrings explain the code. The only `#` lines are the section banners (§3).
 - **Compact and general**: the description says in one short sentence *what* the function or class is for, not *how* it does it. Don't walk through its steps, branches, queries or edge cases; the code shows those. Keep `:param:` / `:return:` / `:raises:` lines short too (a few words each).
   - GOOD: `Read one entity by its id.` / `:return: The entity.`
   - BAD: `Open a nested transaction, call session.get with the id, check whether the result is None and if so ..., otherwise return the row it found.`
@@ -561,7 +567,7 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 ## 14. Folder Rules
 
 - twilight rules: `services/twilight/CLAUDE.md`
-- midnight_models rules: `libs/midnight_models/CLAUDE.md`
+- shared models library rules: its `libs/<models library>/CLAUDE.md`
 - evermore rules: `services/evermore/CLAUDE.md`
 - Sessions, transactions, indexes: `sql-conventions`
 - `database/create/` and `database/update/` (and similar `database/<action>/` folders): try to keep **only manager classes** there (one creator or updater manager per file). Helper functions, builders and conversions go to `utils.py` or the folder's other utils module, never as loose functions next to a manager.
@@ -577,9 +583,12 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 
 ---
 
-## 16. Readable Duplication
+## 16. Readable Duplication (important)
 
-Some code is clearer written out where it's used than shared, even when it repeats. Don't extract helpers for:
+A little duplicated code is fine, and here it's required: it keeps every function and every model readable on its own, top to bottom, without jumping into helpers. **Never** turn these into reusable functions, base classes, mixins or factories, even when the same lines repeat in every function:
+- **session calls**: `add`, `flush`, `commit`, `refresh`, `delete`, `begin_nested()`
+- **ORM objects**: SQLModel/SQLAlchemy models, their fields, and queries (`select(...)` statements): no shared base model or mixin for common columns, no function that builds a model's fields, no helper that returns a reusable query
+Specifically, don't extract helpers for:
 - `try` / `except` blocks
 - the `try: self._session.commit()` + `handle_integrity_error(...)` block of a write (see `sql-conventions`)
 - **session steps bundled together**: never a helper that does `add` + `commit` + `refresh` (or any mix of `add`, `flush`, `commit`, `refresh`, `delete`) in one call, like `save_and_refresh(entity)`. Write each step where it happens, so the function shows exactly what it does to the session.

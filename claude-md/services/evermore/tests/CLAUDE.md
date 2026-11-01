@@ -41,17 +41,24 @@ package_env_session is imported in each package's conftest, never registered in 
 A package may build several environments on package_env_session; they share the savepoint and are discarded together.
 
 ## The environment is an inventory
+- A package's environment (tests/<module>/) is created and changed **only** in its initialize_test_environment
+  (initialize_*_environment). Tests, fixtures and helpers read it; they never add, change or delete its rows.
+- initialize_test_environment builds rows with evermore's own model classes only (Entity(...), session.add(...)).
+  Never call production managers, creators or helpers there: a bug in them would then be built into the data,
+  and the tests would agree with it instead of finding it.
 - Tests fetch what they need from env and declare exactly what they need. They never build rows.
 - Missing a row? Add it in initialize_*_environment, with its migrate_session entry. Never work around it in the test.
 - A test must pass whatever else is added to the environment later. Environments only grow.
 - Every time-valued column gets creation_and_time_generator.get_and_inc(), never a literal or now(),
   so no two rows share a timestamp. Not only the column you sort by today.
 
-## One unit per test
+## One thing, one unit per test
+- Each test checks one thing. Two outcomes to check → two tests.
 - A test exercises one unit: the updater, the reader, the creator, or the endpoint.
   The environment (data) and the assertion are as dumb as possible.
-- Never create with the creator and check with the reader: two units can agree on a wrong answer,
-  and the extra validation and queries are charged to the test.
+- Never use two production units in one test (create with the creator, then check with the reader; update, then read):
+  it's slower, and the second unit can hide a problem the first one made. Check the result through the models
+  (re-read the row from the session) or the object the unit returned.
 - Whole-response assertions build the expected value with the test's own formatter (e.g. format_entity_full)
   from the env row. The formatter converts by itself. It may import production model classes,
   never production conversion logic.

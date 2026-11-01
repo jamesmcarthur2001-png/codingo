@@ -23,6 +23,10 @@ vitest-conventions, browser-test-conventions.
 
 ## Tests
 - No tests in twilight. Don't write, plan or run tests for it; its changed lines need no coverage.
+- Each test checks one thing, and calls one production unit. Never create with one function and check with another
+  (creator then reader): it's slower and the second can hide the first one's bug. Check through the models instead.
+- A test package's environment (tests/<module>/) is built and changed only in its initialize_test_environment,
+  and only with the service's own model classes, never with production functions.
 
 ## Scope
 Change existing lines only when the task needs them changed, even in a file you're editing:
@@ -57,11 +61,18 @@ Then fix them all, and run the checks once at the end.
 - Full years in dates: 2026, not 26.
 - Keep docstrings short: one sentence on what the function or class is for, not how it works.
   Don't narrate its steps, branches or edge cases; the code already says that. `:param:`/`:return:` lines are a few words each.
-- Readability over sharing: no helper that bundles session steps (add + commit + refresh in one call), and no
-  function that returns a shared class part (e.g. a pydantic Field used by many models). Write them out where used.
+- Readability over reuse, always: session calls (add, commit, refresh, ...), try/except blocks and ORM objects
+  (models, fields, queries) never become shared helpers, base models, mixins or factories. A little duplicated code
+  is fine: each function and each model stays readable on its own.
+- Never generate a model's fields with a function; write each field in the model.
+- One migration per feature: when the schema changes again, update the branch's migration, never add a second.
 - String constants: none by length in the backend; only critical keys (see below) are constants.
 - Page sizes are what one page really shows (usually 10–25), never 100 "just in case".
 - No `# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore` or `# pragma: no cover`. Fix the code.
+
+## Comments
+Never write code comments, in any language. Needing one means the code can be simpler: give the value a clear
+variable name, or move the step into a function whose name says what it does.
 
 ## Frontend
 - No `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the code.

@@ -2,7 +2,7 @@
 """
 Checks Python files against the house conventions that ruff and mypy cannot express.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 16/10/2026
 """
 # ----- Imports ----- #

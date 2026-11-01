@@ -1,6 +1,6 @@
 ---
 name: html-mockups
-description: Use in the /feature grill when the user wants an HTML preview of new views, dialogs or layout changes before the spec. Writes static, offline mockups (plain HTML/CSS, no CDN, light/dark and RTL toggles, empty/loading/error states) close to Vuetify's look, in docs/features/<ticket>/mockups/.
+description: Use in the /feature grill for every frontend change, to show how the changed screens, dialogs or components will look, with 2-3 design options each, before the spec. Writes static, offline mockups (plain HTML/CSS, no CDN, light/dark and RTL toggles, empty/loading/error states) close to Vuetify's look, in docs/features/<ticket>/mockups/.
 ---
 
 # HTML mockups
@@ -15,10 +15,11 @@ Static previews the user opens in a browser before the spec is written. They sho
 - Close to Vuetify: the template's cards, buttons, text fields, data table, chips and snackbar. Use the real labels and column names from the spec draft and `grill-notes.md`, and realistic sample rows.
 - Every async view shows its **content, empty (with a message), loading and error** states; the template's state switch picks one.
 - Mark anything still open with a dashed `.open-question` box naming the unknown.
+- **Options**: until the user picks one, each file shows **2–3 design options** of the same screen one under the other, headed `Option A`, `Option B`, `Option C`, each with a one-line note (what it's good at, its trade-off). Options differ in something the user would choose between (layout, placement of the new part, wording, density), not in color only. Mark the one you recommend. Small changes (a new column, button or field) get a mockup too: show it in the context of the existing screen.
 
 ## Workflow
 1. List the screens the feature adds or changes (from `context.md` and the grill so far).
 2. Write one mockup per screen.
-3. Tell the user the paths (absolute) and ask, in the next grill round, what to change. Quote their words when they refer to a requirement.
-4. Apply the changes; repeat until they approve. Record `Mockups approved: <file list>` in `grill-notes.md`.
+3. Tell the user the paths (absolute) and ask, in the next grill round, which option they want for each screen and what to change. Quote their words when they refer to a requirement.
+4. Keep only the chosen option, apply the changes; repeat until they approve. Record `Mockups approved: <file list> (option chosen per screen)` in `grill-notes.md`.
 5. The spec links each approved mockup from the requirement it shows.

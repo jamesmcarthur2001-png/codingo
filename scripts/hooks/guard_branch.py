@@ -2,7 +2,7 @@
 """
 PreToolUse hook on Bash: blocks creating or renaming a branch when another branch with the same BTRC-<n> already exists.
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

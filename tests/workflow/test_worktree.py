@@ -189,7 +189,7 @@ def test_create_with_branch_equal_to_base_is_a_setup_error(repository: Repositor
 
 
 def test_guard_branch_lets_the_script_call_through():
-    changes = find_branch_changes('python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" create BTRC-1234 --no-worktree')
+    changes = find_branch_changes('python3 "$HOME/.claude/scripts/worktree.py" create BTRC-1234 --no-worktree')
 
     assert changes == []
 

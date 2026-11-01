@@ -12,7 +12,7 @@ notes findings dismissed in earlier rounds, and records which frontend files the
 `triage-check` lists the round's findings that have no row under `## Round <round>` in review/triage.md, so every problem is mapped before fixing starts.
 Exit codes: 0 done, 1 findings missing from triage.md, 2 setup error (no feature, git failed).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 28/10/2026
 """
 # ----- Imports ----- #

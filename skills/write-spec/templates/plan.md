@@ -10,6 +10,7 @@ Format rules (scripts/scope_check.py parses this file):
 - A changed file not listed in any slice up to the current one fails check_slice.py.
 - Tests are not listed here: test files come from the File column of test-plan.md.
 - Order slices by dependency: model/migration → manager/reader → API route → proxy route → frontend types/client → components/views.
+- One migration for the whole feature, in the first slice; later slices update it, never add another.
 -->
 
 ## Slice 1: <name, e.g. "evermore model + reader">

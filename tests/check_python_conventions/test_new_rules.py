@@ -5,7 +5,7 @@ import pytest
 
 from check_python_conventions import check_python_file
 
-HEADER = '"""\nEntities.\n\n:author: midnight-workflow\n:date: 16/10/2026\n"""\n'
+HEADER = '"""\nEntities.\n\n:author: claude-workflow\n:date: 16/10/2026\n"""\n'
 FUNCTIONS = HEADER + "# ----- Functions ----- #\n\n\n"
 
 

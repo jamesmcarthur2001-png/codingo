@@ -200,7 +200,7 @@ def test_guard_test_plan_reviewer_role_allows(make_feature: Callable[..., Path],
     completed = run_hook(
         "guard_test_plan.py",
         write_payload(project, "test_reader.py", NEW_TEST_SOURCE),
-        {"MIDNIGHT_ROLE": "reviewer"},
+        {"WORKFLOW_ROLE": "reviewer"},
     )
 
     assert completed.returncode == 0

@@ -10,7 +10,7 @@ Writes review/beatrice-<round>-a.md, -b.md (raw), review/beatrice-<round>.md (me
 and review/beatrice-<round>.json (the same findings, with each flagged line's text as it was during the review).
 Exit codes: 0 at least one run finished, 1 both runs failed twice, 2 setup error (no feature, or another long step is running).
 
-:author: midnight-workflow
+:author: claude-workflow
 :date: 29/10/2026
 """
 # ----- Imports ----- #
