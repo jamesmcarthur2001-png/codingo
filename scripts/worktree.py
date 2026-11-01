@@ -3,7 +3,8 @@
 Creates or removes a feature's native git worktree under `.claude/worktrees/<branch>`, or, with --no-worktree, switches the main checkout to the branch.
 
 Usage: python3 worktree.py create BTRC-1234 --branch BTRC-1234-csv-export --base master [--title "..."] [--no-worktree]
-       python3 worktree.py remove BTRC-1234
+       python3 worktree.py remove BTRC-1234 [--done]
+`remove` copies the feature folder into the main checkout's docs/features first, then removes the worktree (never the branch).
 `create` reuses the branch when it exists (locally or on origin), never creates a second branch for the same BTRC-<n>,
 keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude`, and copies the gitignored files listed in `.worktreeinclude`.
 The feature folder lives in the code root: `<worktree>/docs/features/<ticket>` (or the main checkout's docs/features with
@@ -484,26 +485,67 @@ def switch_main_checkout(state: FeatureState) -> str:
     return f"Created branch {branch} from {REMOTE}/{base} in the main checkout."
 
 
-def remove_worktree(state: FeatureState) -> str:
+def archive_feature_folder(state: FeatureState) -> Path:
     """
-    Remove the feature's worktree; the branch itself stays.
+    Copy the feature folder into the main checkout's docs/features, so its summary and video outlive the worktree.
+
+    :param state: The feature's state, in its worktree.
+    :return: The copy's folder.
+    """
+    target = state.repository_root / FEATURES_DIRECTORY / state.field("Ticket")
+    if state.feature_directory.resolve() == target.resolve():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        state.feature_directory,
+        target,
+        dirs_exist_ok=True,
+    )
+    return target
+
+
+def mark_done(state: FeatureState):
+    """
+    Set the feature's `Status: DONE` and drop its .active marker in the main checkout.
+
+    :param state: The feature's state, where it now lives.
+    """
+    state.reload()
+    state.set_field("Status", "DONE")
+    state.save()
+    remove_main_active_marker(state.repository_root, state.field("Ticket"))
+
+
+def remove_worktree(state: FeatureState, done: bool) -> str:
+    """
+    Copy the feature folder to the main checkout, then remove the feature's worktree; the branch itself stays.
 
     :param state: The feature's state.
+    :param done: Whether to mark the feature DONE once the worktree is gone.
     :return: What was done.
     :raises WorktreeError: When git can't remove it (uncommitted files, or a program has it open).
     """
     if not state.uses_worktree() or state.field("Worktree") == "":
+        if done:
+            mark_done(state)
         return "No worktree to remove (the feature works in the main checkout)."
     worktree_path = state.code_root().resolve()
     repository_root = state.repository_root
     if worktree_path not in registered_worktrees(repository_root):
+        if done:
+            mark_done(state)
         return f"Worktree {worktree_path} is already removed."
+    state.log(f"worktree {worktree_path} removed, feature folder kept in the main checkout")
+    state.save()
+    archive = archive_feature_folder(state)
     require_git(
         ["worktree", "remove", str(worktree_path)],
         repository_root,
         f"git worktree remove {worktree_path} failed (uncommitted files, or a program still has it open).",
     )
-    return f"Removed worktree {worktree_path}."
+    if done:
+        mark_done(FeatureState.load(archive / STATE_FILE_NAME))
+    return f"Removed worktree {worktree_path}. The feature folder is kept at {archive}."
 
 
 def main() -> int:
@@ -516,6 +558,11 @@ def main() -> int:
         "--no-worktree",
         action="store_true",
         help="Work in the main checkout: switch it to the branch instead of creating a worktree.",
+    )
+    parser.add_argument(
+        "--done",
+        action="store_true",
+        help="With remove: set `Status: DONE` once the worktree is gone (the last step of /feature).",
     )
     parser.add_argument(
         "--branch",
@@ -557,7 +604,7 @@ def main() -> int:
         return 0
     try:
         if arguments.action == "remove":
-            print(remove_worktree(state))
+            print(remove_worktree(state, arguments.done))
         elif arguments.no_worktree:
             print(switch_main_checkout(state))
         else:

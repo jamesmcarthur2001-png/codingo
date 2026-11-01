@@ -65,7 +65,7 @@ Only when state.md's `## Frontend` says `- Touches frontend: yes`. Add these to 
 | Option | Question | Recommendation |
 |---|---|---|
 | `Playwright reviewer` | "Run a Playwright reviewer that opens the app and checks the new behaviour, alongside Beatrice?" | Yes |
-| `Video` | "Record a video of the new behaviour at the end?" | Yes when the change is visible to users, else no |
+| `Video` | "Record a video of the new behaviour at the end?" Always ask it when the frontend is touched. | Yes. Write `- Video: no` only when the user says they don't want one |
 | `HTML preview` | "See an HTML preview of how it will look before I write the spec?" Ask **only** for new views, dialogs or layout changes; otherwise write `- HTML preview: no` without asking. | Yes for a new view or dialog |
 
 If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the `service-map` skill and the frontend's `package.json`, and recommend one:

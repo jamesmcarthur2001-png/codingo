@@ -94,7 +94,7 @@ def remote_log(setup: FinishSetup, reference: str) -> str:
     return git(setup.remote, "log", "--format=%s", reference)
 
 
-def test_finish_branch_happy_path_pushes_and_keeps_the_worktree_with_the_feature_folder(
+def test_finish_branch_happy_path_pushes_and_leaves_the_worktree_for_removal_after_the_summary(
     finish_setup: FinishSetup,
     monkeypatch: pytest.MonkeyPatch,
     fake_commands: Callable[[bool], FakeCommands],
@@ -108,7 +108,7 @@ def test_finish_branch_happy_path_pushes_and_keeps_the_worktree_with_the_feature
 
     state = state_of(finish_setup)
     assert exit_code == 0
-    assert "BTRC-1234: CSV export for entities" in remote_log(finish_setup, BRANCH)
+    assert "feat(repo): CSV export for entities" in remote_log(finish_setup, BRANCH)
     assert "colleague work on master" in remote_log(finish_setup, BRANCH)
     assert state.field("Pushed") == git(finish_setup.remote, "rev-parse", BRANCH).strip()
     assert state.field("Phase") == "SUMMARY"
@@ -116,7 +116,7 @@ def test_finish_branch_happy_path_pushes_and_keeps_the_worktree_with_the_feature
     assert (state.feature_directory / "spec.md").is_file()
     assert not (state.feature_directory / ".running.json").exists()
     assert finish_setup.worktree.is_dir()
-    assert any("kept at" in line for line in state.section("Finish"))
+    assert any("removed after the summary" in line for line in state.section("Finish"))
     assert "docker compose -p btrc-1234 -f docker-compose.yml down --remove-orphans" in commands.commands()
     assert not (finish_setup.repository / "docs" / "features").exists()
     assert not (finish_setup.repository / "other.py").exists()
@@ -364,7 +364,7 @@ def test_finish_branch_without_worktree_finishes_in_the_main_checkout(
 
     finish_lines = state_of(finish_setup).section("Finish")
     assert exit_code == 0
-    assert "BTRC-1234: CSV export for entities" in remote_log(finish_setup, BRANCH)
+    assert "feat(repo): CSV export for entities" in remote_log(finish_setup, BRANCH)
     assert any("no worktree: the feature used the main checkout" in line for line in finish_lines)
     assert state_of(finish_setup).field("Phase") == "SUMMARY"
 
@@ -399,3 +399,51 @@ def test_finish_branch_worktree_mode_without_a_worktree_path_is_a_setup_error(
     exit_code = run_finish(monkeypatch)
 
     assert exit_code == 2
+
+
+def test_finish_branch_commit_title_field_is_the_whole_commit_message(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+    state = state_of(finish_setup)
+    state.set_field("Commit title", "fix(evermore): export empty entity lists")
+    state.save()
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 0
+    assert git(finish_setup.remote, "log", "-1", "--format=%B", BRANCH).strip() == "fix(evermore): export empty entity lists"
+
+
+def test_finish_branch_scope_comes_from_the_changed_service(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    install_tools(fake_commands)
+    service_folder = finish_setup.worktree / "services" / "evermore"
+    service_folder.mkdir(parents=True)
+    (service_folder / "export.py").write_text("rows = []\n", encoding="utf-8")
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 0
+    assert "feat(evermore): CSV export for entities" in remote_log(finish_setup, BRANCH)
+
+
+def test_finish_branch_commit_title_in_the_wrong_format_is_a_setup_error(
+    finish_setup: FinishSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
+    commands = install_tools(fake_commands)
+    state = state_of(finish_setup)
+    state.set_field("Commit title", "BTRC-1234: CSV export")
+    state.save()
+
+    exit_code = run_finish(monkeypatch)
+
+    assert exit_code == 2
+    assert not any(command.startswith(("git commit", "git push")) for command in commands.commands())

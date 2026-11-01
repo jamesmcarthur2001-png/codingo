@@ -13,7 +13,7 @@ Produce `spec.md` and `plan.md` in `docs/features/<ticket>/` from the templates 
 
 ## Writing `spec.md`
 - Use `templates/spec.md`. Fill every section, or write `N/A: <why>`. Never delete a section.
-- **IDs:** requirements are `REQ-1…`, edge cases `EC-1…`, decisions `D-1…` (copied from grill-notes). Every requirement has testable acceptance criteria: "returns 404 with `EntityNotFoundError` detail", not "handles missing entities".
+- **IDs:** requirements are `REQ-1…`, edge cases `EC-1…`, decisions `D-1…` (copied from grill-notes). Every requirement has testable acceptance criteria: "returns 404 with `NotFoundError` detail", not "handles missing entities".
 - **Contracts are exact:** field names, types, nullability, status codes, message schemas. The TS types must mirror the Pydantic/SQLModel schemas field for field.
 - **Every decision is traceable:** each `REQ`/`EC` cites the `D-n` it comes from, when it comes from a decision.
 - **Mockups:** when `docs/features/<ticket>/mockups/` holds approved mockups (see `html-mockups`), link each one from the requirement it shows: `REQ-2 … (look: [mockups/entity-export-dialog.html](mockups/entity-export-dialog.html))`.

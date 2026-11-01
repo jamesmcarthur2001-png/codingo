@@ -145,6 +145,30 @@ def test_remove_deletes_the_worktree_and_keeps_the_branch(repository: Repository
     assert git(repository.root, "branch", "--list", BRANCH).strip() != ""
 
 
+def test_remove_copies_the_feature_folder_into_the_main_checkout(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    worktree_feature = repository.root / WORKTREE / "docs" / "features" / "BTRC-1234"
+    (worktree_feature / "summary.md").write_text("# Summary\n", encoding="utf-8")
+
+    exit_code = run_main(monkeypatch, "remove", "BTRC-1234")
+
+    archived = repository.root / "docs" / "features" / "BTRC-1234"
+    assert exit_code == 0
+    assert (archived / "summary.md").read_text(encoding="utf-8") == "# Summary\n"
+    assert repository.state().feature_directory.resolve() == archived.resolve()
+    assert repository.state().field("Status") == "RUNNING"
+
+
+def test_remove_with_done_marks_the_copied_feature_done(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+    run_main(monkeypatch, "create", "BTRC-1234")
+
+    exit_code = run_main(monkeypatch, "remove", "BTRC-1234", "--done")
+
+    assert exit_code == 0
+    assert not (repository.root / WORKTREE).exists()
+    assert repository.state().field("Status") == "DONE"
+
+
 def test_remove_in_no_worktree_mode_does_nothing(repository: Repository, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
     run_main(monkeypatch, "create", "BTRC-1234", "--no-worktree")
 

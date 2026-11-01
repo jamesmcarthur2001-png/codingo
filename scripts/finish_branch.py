@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Finishes a feature branch from its code root: commit, rebase on the base, push with a lease, wait for the pipeline, stop the branch's containers.
+Finishes a feature branch from its code root: commit, rebase on the base, force-push with a lease, wait for the pipeline to pass, stop the branch's containers.
 
-In worktree mode the worktree is kept, with the feature folder (state.md, reviews, summary, video) inside it, so nothing is
-written in the main checkout; the user removes it later with `worktree.py remove <ticket>` from the main checkout.
+The commit has a title line only (`Commit title:` in state.md, e.g. `feat(evermore): add CSV export`), no body.
+In worktree mode the orchestrator removes the worktree right after the summary (`worktree.py remove <ticket>`).
 Without a worktree (`Worktree mode: none`) it also updates the base branch in the main checkout.
 Usage: python3 finish_branch.py BTRC-1234
 Every step checks whether it is still needed (and finished steps are recorded under `## Finish`), so running the script again resumes.
@@ -64,6 +64,9 @@ NEEDS_PERSON = "needs a person"
 PUSH_REJECTED_MARKERS = ("rejected", "stale info")
 CONFLICT_MARKER_PATTERN = re.compile(r"^(?:<<<<<<<|>>>>>>>)(?: |$)", re.MULTILINE)
 SPEC_TITLE_PREFIXES = ("Spec:", "Spec -")
+COMMIT_TITLE_PATTERN = re.compile(r"^(?:feat|fix|refactor|perf|test|docs|style|build|ci|chore)\([a-z0-9_.,-]+\): \S")
+DEFAULT_COMMIT_TYPE = "feat"
+SCOPE_FOLDERS = ("services", "libs", "apps")
 REBASE_STATE_DIRECTORIES = ("rebase-merge", "rebase-apply")
 LOCAL_REFS_PREFIX = "refs/heads/"
 REMOVE_COMMAND = 'python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove {ticket}'
@@ -152,7 +155,7 @@ def read_context(state: FeatureState) -> BranchContext:
     )
 
 
-def commit_title(state: FeatureState) -> str:
+def spec_title(state: FeatureState) -> str:
     """
     Read the feature's title from the first heading of spec.md.
 
@@ -172,6 +175,60 @@ def commit_title(state: FeatureState) -> str:
             return title
 
     return state.field("Title")
+
+
+def changed_scopes(context: BranchContext) -> list[str]:
+    """
+    Name the services, libraries or apps the branch changes, for the commit title's scope.
+
+    :param context: The branch context.
+    :return: The scope names in path order, without duplicates.
+    """
+    changed = name_list(
+        git(
+            ["diff", "--name-only", f"{REMOTE}/{context.base}"],
+            context.code_root,
+        ),
+    )
+    changed += name_list(
+        git(
+            ["ls-files", "--others", "--exclude-standard"],
+            context.code_root,
+        ),
+    )
+    scopes: list[str] = []
+    for relative_path in changed:
+        parts = relative_path.split("/")
+        scope = parts[0]
+        if parts[0] in SCOPE_FOLDERS and len(parts) > 2:
+            scope = parts[1]
+        if len(parts) > 1 and scope not in scopes:
+            scopes.append(scope)
+
+    return scopes
+
+
+def commit_title(state: FeatureState, context: BranchContext) -> str:
+    """
+    Build the commit's one-line title, `<type>(<scope>): <what was done>`.
+
+    :param state: The feature's state, with `Commit title:` when the orchestrator wrote one.
+    :param context: The branch context.
+    :return: The title.
+    :raises FinishStepError: With code 2 when `Commit title:` doesn't match the format.
+    """
+    title = state.field("Commit title")
+    if title == "":
+        scopes = changed_scopes(context)
+        if len(scopes) == 0:
+            scopes = [context.repository_root.name.lower()]
+        title = f"{DEFAULT_COMMIT_TYPE}({','.join(scopes)}): {spec_title(state)}"
+    if COMMIT_TITLE_PATTERN.match(title) is None:
+        raise FinishStepError(
+            SETUP_ERROR_EXIT_CODE,
+            f"`Commit title: {title}` must look like `feat(evermore): add CSV export` (type, scope, what was done).",
+        )
+    return title
 
 
 def record_step(state: FeatureState, step: str, detail: str):
@@ -339,13 +396,14 @@ def commit_changes(state: FeatureState, context: BranchContext):
     )
     if status.stdout.strip() == "":
         return
+    title = commit_title(state, context)
     require_success(
         git(["add", "-A"], context.code_root),
         OTHER_ERROR_EXIT_CODE,
         "git add failed.",
     )
     commit = git(
-        ["commit", "-m", f"{context.ticket}: {commit_title(state)}"],
+        ["commit", "-m", title],
         context.code_root,
     )
     require_success(
@@ -622,9 +680,9 @@ def stop_containers(state: FeatureState, context: BranchContext):
     )
 
 
-def record_worktree_kept(state: FeatureState, context: BranchContext):
+def record_worktree_next(state: FeatureState, context: BranchContext):
     """
-    Record what happens to the code root: a worktree is kept with the feature folder in it; without one there is nothing to remove.
+    Record what happens to the code root: a worktree is removed right after the summary; without one there is nothing to remove.
 
     :param state: The feature's state.
     :param context: The branch context.
@@ -640,7 +698,7 @@ def record_worktree_kept(state: FeatureState, context: BranchContext):
     record_step(
         state,
         "worktree",
-        f"(kept at {context.code_root} with the feature folder; remove it from the main checkout with `{remove_command}`)",
+        f"(removed after the summary with `{remove_command}`; the feature folder is copied to the main checkout)",
     )
 
 
@@ -688,7 +746,7 @@ def update_base_checkout(state: FeatureState, context: BranchContext):
 
 def finish(state: FeatureState):
     """
-    Run every finish step still needed. A worktree is kept; without one the base is updated in the main checkout.
+    Run every finish step still needed; without a worktree the base is also updated in the main checkout.
 
     :param state: The feature's state.
     :raises FinishStepError: With the exit code of the step that stopped.
@@ -721,7 +779,7 @@ def finish(state: FeatureState):
         stop_containers(state, context)
 
     if not is_step_recorded(state, "worktree"):
-        record_worktree_kept(state, context)
+        record_worktree_next(state, context)
 
     if not context.uses_worktree:
         update_base_checkout(state, context)

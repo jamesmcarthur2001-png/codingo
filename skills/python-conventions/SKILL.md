@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, custom exceptions, .env configuration, string constants (5+ words), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
+description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, managers-only database/create and database/update folders, realistic page sizes, .env configuration, string constants (critical keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
 ---
 
 # Python Backend Conventions
@@ -110,19 +110,11 @@ Service manager for reading entities.
 from sqlmodel import Session, select
 
 from app.entities.models import Entity
+from app.errors import NotFoundError
 
 # ----- Consts ----- #
 
-DEFAULT_PAGE_SIZE = 50
-
-# ----- Classes ----- #
-
-
-class EntityNotFoundError(Exception):
-    """
-    Raised when the requested entity does not exist.
-    """
-    pass
+DEFAULT_PAGE_SIZE = 20
 
 # ----- Functions ----- #
 
@@ -134,11 +126,11 @@ def read_entity_by_id(session: Session, entity_id: int) -> Entity:
     :param session: The open database session.
     :param entity_id: The id of the entity to read.
     :return: The entity.
-    :raises EntityNotFoundError: When no entity has this id.
+    :raises NotFoundError: When no entity has this id.
     """
     entity: Entity | None = session.get(Entity, entity_id)
     if entity is None:
-        raise EntityNotFoundError(f"Entity {entity_id} was not found.")
+        raise NotFoundError(f"Entity {entity_id} was not found.")
 
     return entity
 ```
@@ -172,6 +164,9 @@ DOCSTRING EXPLANATION
 - **Which fields**: functions with business logic get `:param:`, `:return:` (when they return a value), and `:raises:` (when they raise). Small helpers without business logic may have only the description.
 - **Never mention past implementations**: Explain *why* the code works this way *now*, never what it used to do.
 - **No code comments**: never write `#` comments. Names, types, and docstrings explain the code. The only `#` lines are the section banners (§3).
+- **Compact and general**: the description says in one short sentence *what* the function or class is for, not *how* it does it. Don't walk through its steps, branches, queries or edge cases; the code shows those. Keep `:param:` / `:return:` / `:raises:` lines short too (a few words each).
+  - GOOD: `Read one entity by its id.` / `:return: The entity.`
+  - BAD: `Open a nested transaction, call session.get with the id, check whether the result is None and if so ..., otherwise return the row it found.`
 - **Description Sentence**: The description is a short, concise sentence explaining what the function does, ending with a period (`.`). It must **never** mention raising errors (e.g. no "or raise an error if not found"). Exceptions are documented exclusively in `:raises:`.
 - **Imperative mood**: function, method, and endpoint descriptions are written as a command: `Lock the resource.`, `List sites matching the search text.`, never `Locks the resource.` or `Lists sites ...`. Class and exception docstrings describe the thing, so they keep their form (`A site where assets are installed.`, `Raised when ...`).
 - **Boolean returns**: describe what the value means, not when it's true or false. Write `:return: Whether the asset is overdue.`, never `:return: True when the asset is overdue, False otherwise.` The same applies to the description of a function that returns a `bool`: `Check whether the name is taken.`
@@ -448,11 +443,9 @@ class SiteInput(BaseModel):
 
 ## 9. String Constants
 
-- **Strings of 5+ words** (SQL, templates, multi-line text, long non-error messages) become named constants in the `Consts` section, so they're easy to find and change.
-- **Except where reading the string in place matters**, whatever its length and even when it repeats: error messages, anything passed to `raise`, strings inside models and error classes, settings, and similar. Write them inline (`raise SiteNotFoundError(f"Site {site_id} was not found.")`).
-- **Short strings** (4 words or fewer: keys, labels, `"Site not found"`) stay inline where they're used. Moving them into constants only hides them and makes quick changes slower.
-- **Settings stay inline** (decision 2): settings keys and values are read in place, so they are not moved into constants, whatever their length.
-- The Python threshold (5+ words) is deliberately higher than the frontend's (4+ words, see `vue-conventions` §7).
+- **No string constants by length in the backend.** Messages, SQL, templates and other text stay inline where they're used, whatever their length. (The frontend does make strings of more than 6 words constants, see `vue-conventions` §7.)
+- **Critical keys are constants**, in the backend and in the frontend: strings that must match exactly in several places or across services, such as storage and cache keys, header names, queue names and routing keys, event names, and permission or role names. Define each one once, in the `Consts` section of the module that owns it (or a shared consts module when several services use it).
+- **Settings stay inline**: settings keys and values are read in place.
 - **Strings in tests are never constants.**
 
 ---
@@ -486,6 +479,7 @@ site_names = [site.name for site in sites if not site.archived]
 - **New routers use `prefix=`, not `tags=`**: `router = APIRouter(prefix="/sites")`.
 - **Never store a dependency in a constant or a type alias** (no `SessionDependency = Annotated[Session, Depends(get_session)]` and no `session_dependency = Depends(get_session)`). Spelling the dependency in each endpoint keeps every endpoint readable on its own.
 - Query and path parameters use full names (§4); use `alias=` when the URL needs a short name.
+- **Realistic page sizes**: a list endpoint's default page size is what one page of the screen actually shows (usually 10–25), and its maximum stays close to it. Never default to 100 (or more) "just in case"; load more pages when needed.
 
 ```python
 # GOOD:
@@ -515,17 +509,22 @@ Database access (sessions, transactions, queries) follows the **`sql-conventions
 ## 12. Custom Exceptions
 
 - **Never raise Python base exceptions** (`Exception`, `ValueError`, `KeyError`, `RuntimeError`, etc.).
-- Always define and raise custom application exceptions that clearly represent the domain failure.
-- Custom exception class names **must** end with `Error` (e.g. `NotFoundError`, `DatabaseTransactionError`, never `NotFound`).
+- **Exception classes live only in errors files**: the service's `errors.py` (or the `errors/` package, or the module's `errors.py` where the project already has them). Never define an exception class in a manager, router, model or utils file; import it from the errors file.
+- **General, not specific**: an error names the kind of failure, not the object: `NotFoundError`, `AlreadyExistsError`, `ValidationError`, `ConflictError`, `PermissionDeniedError`. The message says which object (`raise NotFoundError(f"Entity {entity_id} was not found.")`). Don't add `EntityNotFoundError`, `SiteNotFoundError`, … next to an existing general one; reuse it. Add a new class only for a new *kind* of failure.
+- Custom exception class names **must** end with `Error` (e.g. `NotFoundError`, never `NotFound`).
 - **Empty classes end with `pass`**: a class whose body would otherwise be only its docstring (typically an exception that just inherits) always has `pass` on the line after the docstring. Never leave a class with only a docstring.
 
 ```python
-# GOOD:
-class UserNotFoundError(Exception):
+# GOOD: app/errors.py
+class NotFoundError(Exception):
     """
-    Raised when the specified user ID does not exist in the database.
+    Raised when a requested object does not exist.
     """
     pass
+
+
+# GOOD: app/users/reader.py
+from app.errors import NotFoundError
 
 
 def fetch_user_by_id(user_id: str) -> UserRecord:
@@ -534,13 +533,18 @@ def fetch_user_by_id(user_id: str) -> UserRecord:
 
     :param user_id: The id of the user.
     :return: The user record.
-    :raises UserNotFoundError: When no user has this id.
+    :raises NotFoundError: When no user has this id.
     """
     record: UserRecord | None = user_store.find(user_id)
     if record is None:
-        raise UserNotFoundError(f"User {user_id} was not found.")
+        raise NotFoundError(f"User {user_id} was not found.")
 
     return record
+
+
+# BAD: a specific error class, defined in the reader
+class UserNotFoundError(Exception):
+    ...
 ```
 
 ---
@@ -560,6 +564,8 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 - midnight_models rules: `libs/midnight_models/CLAUDE.md`
 - evermore rules: `services/evermore/CLAUDE.md`
 - Sessions, transactions, indexes: `sql-conventions`
+- `database/create/` and `database/update/` (and similar `database/<action>/` folders): try to keep **only manager classes** there (one creator or updater manager per file). Helper functions, builders and conversions go to `utils.py` or the folder's other utils module, never as loose functions next to a manager.
+- Exception classes: only in errors files (§12).
 
 ---
 

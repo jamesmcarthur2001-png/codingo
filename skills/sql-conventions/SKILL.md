@@ -9,6 +9,8 @@ Applies to code you write or change. Never to unchanged lines.
 
 General Python style is in `python-conventions`; evermore's folder rules are in `services/evermore/CLAUDE.md`. Reviewers use `references/checklist.md`.
 
+**Folders**: `database/create/` and `database/update/` hold manager classes only (one creator or updater per file); helpers go to `utils.py` or another utils module. Errors come from the errors file and are general (`NotFoundError`), see `python-conventions` §12. Reads that return lists use a realistic page size (what one page shows, usually 10–25).
+
 ---
 
 ## 1. Every Session Operation Runs in a Transaction
@@ -23,13 +25,13 @@ def entity_by_id(self, entity_id: int) -> Entity:
 
     :param entity_id: The id of the entity to read.
     :return: The entity.
-    :raises EntityNotFoundError: When no entity has this id.
+    :raises NotFoundError: When no entity has this id.
     """
     with self._session.begin_nested():
         entity: Entity | None = self._session.get(Entity, entity_id)
 
     if entity is None:
-        raise EntityNotFoundError(f"Entity {entity_id} was not found.")
+        raise NotFoundError(f"Entity {entity_id} was not found.")
 
     return entity
 

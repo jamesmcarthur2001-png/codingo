@@ -308,7 +308,7 @@ def test_next_step_video_phase_never_blocks_on_failure(tmp_path: Path, make_feat
     "fragment",
     [
         "call the **`EnterWorktree`** tool with that absolute path",
-        "Don't call `ExitWorktree`: the worktree is kept, with the feature folder in it.",
+        "call **`ExitWorktree`** with action `keep` (the script removes it), then from the main checkout run",
         'worktree.py" create <Ticket> --branch "<Branch>" --base "<Base>"',
         "If `EnterWorktree` isn't available in this Claude Code version",
     ],
@@ -317,24 +317,26 @@ def test_next_step_feature_command_holds_the_worktree_steps(fragment: str):
     assert fragment in FEATURE_COMMAND.read_text(encoding="utf-8")
 
 
-def test_next_step_finish_stays_in_the_worktree(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+def test_next_step_finish_writes_the_titles_and_waits_for_the_pipeline(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
     make_feature_state(tmp_path, phase="FINISH")
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
     assert 'finish_branch.py" BTRC-1234`' in reason
-    assert "kept the worktree" in reason
-    assert "Don't call `ExitWorktree`" in reason
+    assert "`Commit title:`" in reason
+    assert "` (BTRC-1234)`" in reason
+    assert "the pipeline must pass" in reason
     assert "--cleanup" not in reason
 
 
-def test_next_step_summary_writes_only_in_the_worktree(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+def test_next_step_summary_closes_the_worktree(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
     make_feature_state(tmp_path, phase="SUMMARY")
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert "summary.md in the worktree" in reason
-    assert "Write nothing in the main checkout" in reason
+    assert "summary.md in the code root" in reason
+    assert 'worktree.py" remove BTRC-1234 --done' in reason
+    assert "`ExitWorktree` (action keep)" in reason
 
 
 def test_next_step_blocks_from_inside_a_real_worktree(

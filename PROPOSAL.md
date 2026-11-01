@@ -1,13 +1,13 @@
 # Workflow proposal: midnight-api on Qwen 3.8 27B
 
-Status: v7, built · 28/10/2026 (v6 plus native worktrees, frontend scope questions, HTML mockups, the parallel review round and the video)
+Status: v8, built · 01/11/2026 (v7 plus commit/MR title format, worktree closed at the end, triage-check before fixing, test database rule, team code rules)
 
 ## 0. Decisions so far
 
 | # | Topic | Decision |
 |---|---|---|
 | 1 | Dates | `DD/MM/YYYY`, full years. **Done**: python-conventions (both copies) and `check_python_conventions.py` now require it, with a test for a 2-digit year. |
-| 2 | String constants | Strings of 5+ words become constants. Except where reading the string in place matters: error messages, `raise`, settings, and similar. Short strings stay inline. |
+| 2 | String constants | Frontend only: strings of 7+ words (over 6) become constants. Backend strings stay inline. Critical keys (storage, header, cache, queue/routing, event and permission keys) are constants in both. |
 | 3 | `get_` prefix | New functions never start with `get_` (`entity_by_id`). Existing names (`get_session`, `get_and_inc`) stay as they are. |
 | 4 | Suppressions | None allowed: no `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`. A script fails on any new one. |
 | 5 | Tests source | `services/evermore/tests/CLAUDE.md` defines evermore's test model. The general pytest skill drops its `db_session` and factory examples. |
@@ -17,11 +17,16 @@ Status: v7, built · 28/10/2026 (v6 plus native worktrees, frontend scope questi
 | 9 | Test plan | Exactly four columns: test name, what it checks, expected result, file. |
 | 10 | Beatrice | Two `claude -p` runs in parallel per round, so each can use its own subagents. Up to 5 rounds. |
 | 11 | Install | Ubuntu, user level: `install.sh` copies commands, agents and skills into `~/.claude/`, the scripts into `~/.claude/midnight-workflow/scripts/`, and merges the hooks into `~/.claude/settings.json`. Not a plugin, not Windows. |
-| 12 | Worktrees | Native git worktrees at `.claude/worktrees/<full branch name>`, made by `worktree.py create` (fetch the base, `git worktree add -b <branch> … origin/<base>`, or reuse the existing branch; never a second BTRC branch) and removed with the same logic. After creating it, the orchestrator calls Claude Code's `EnterWorktree`; each worktree keeps its own feature folder (`<worktree>/docs/features/<ticket>/`, written there from the start; nothing goes into the main checkout's `docs/`), and finishing runs inside the worktree and keeps it, with its docs, until the user runs `worktree.py remove`. `.worktreeinclude` files are copied in. `/feature … --no-worktree` works in the main checkout instead (switched to the branch; `Worktree:` empty, `Worktree mode: none`). |
+| 12 | Worktrees | Native git worktrees at `.claude/worktrees/<full branch name>`, made by `worktree.py create` (fetch the base, `git worktree add -b <branch> … origin/<base>`, or reuse the existing branch; never a second BTRC branch) and removed with the same logic. After creating it, the orchestrator calls Claude Code's `EnterWorktree`; each worktree keeps its own feature folder (`<worktree>/docs/features/<ticket>/`, written there from the start; nothing goes into the main checkout's `docs/`), and finishing runs inside the worktree; after the summary the orchestrator calls `ExitWorktree` and `worktree.py remove <T> --done`, which copies the feature folder to the main checkout's `docs/features/<T>/` and removes the worktree (the branch stays). `.worktreeinclude` files are copied in. `/feature … --no-worktree` works in the main checkout instead (switched to the branch; `Worktree:` empty, `Worktree mode: none`). |
 | 13 | Frontend scope | When exploration shows the frontend is touched, the first grill batch asks: a Playwright reviewer alongside Beatrice (recommended yes), a video at the end, an HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or docker, login). Answers go to `## Frontend` in state.md. Test credentials come only from seed/fixture files or the user. |
 | 14 | Review round | Each Gate B round starts, in one message: `run_beatrice.py` in the background (unchanged), the `conventions-reviewer` agent (changed lines only), and the `playwright-reviewer` agent when chosen (round 1, later only when frontend files changed). All findings go into one `triage.md` with a Source column; the 2/2 merge and the dismissed memory stay per source; max 5 rounds, round-5 handling unchanged. |
 | 15 | HTML preview | Static mockups in `docs/features/<T>/mockups/<screen>.html` before the spec: plain HTML/CSS, no CDN, light/dark and RTL switches, empty/loading/error states, close to Vuetify. Changed in the grill until approved; the spec links them. |
-| 16 | Video | When chosen, a `VIDEO` phase after Gate B records one Playwright `recordVideo` run of the new behaviour to `docs/features/<T>/video/<T>.webm`, listed in summary.md. A failure is noted, never BLOCKED. |
+| 16 | Video | Suggested (recommended yes) whenever the frontend is touched, skipped only when the user says no. When chosen, a `VIDEO` phase after Gate B records one Playwright `recordVideo` run of the new behaviour to `docs/features/<T>/video/<T>.webm`, listed in summary.md. A failure is noted, never BLOCKED. |
+| 17 | Commits and MRs | Title only, no description. Commit: `<type>(<service>): <what was done>` (`feat(sunrise): …`), no ticket. MR: the same + ` (BTRC-<n>)`; several tickets joined with ` & `, each part with its own `(BTRC-<n>)`. |
+| 18 | Review triage | Every finding of every source is mapped in triage.md first; `review_round.py triage-check` must pass before any fix. |
+| 19 | Test database | Tests never run on the user's own database; `Test database:` in state.md records which one they use. |
+| 20 | Backend layout | `database/create` and `database/update` hold managers only (helpers in `utils.py`); exception classes live only in errors files and are general (`NotFoundError`, not `NotFoundError`). Docstrings say generally what a function does, compactly. |
+| 21 | Page size | Realistic: what one page shows (usually 10–25), never 100 "just in case". |
 
 Problems this targets:
 
@@ -197,7 +202,7 @@ Exit 1 is any other error (e.g. glab failing, a pipeline waiting for a manual jo
 
 | Test name | What it checks | Expected result | File |
 |---|---|---|---|
-| `test_entity_by_id_missing_id_raises_entity_not_found_error` | Reading an entity id that doesn't exist | Raises `EntityNotFoundError` with "Entity 7 was not found." | `tests/entities/test_read_entity.py` |
+| `test_entity_by_id_missing_id_raises_not_found_error` | Reading an entity id that doesn't exist | Raises `NotFoundError` with "Entity 7 was not found." | `tests/entities/test_read_entity.py` |
 
 Coverage exemptions and test results, which used to live in the test plan, go to `state.md`. The hook that blocks unplanned tests matches test names anywhere in the file, so it works with this format unchanged (checked in `guard_test_plan.py`).
 

@@ -14,7 +14,7 @@ Write `docs/features/<ticket>/test-plan.md` from `templates/test-plan.md`. **No 
 
 | Test name | What it checks | Expected result | File |
 |---|---|---|---|
-| `test_entity_by_id_missing_id_raises_entity_not_found_error` | Reading an entity id that doesn't exist | Raises `EntityNotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
+| `test_entity_by_id_missing_id_raises_not_found_error` | Reading an entity id that doesn't exist | Raises `NotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
 
 ## Inputs
 - `spec.md`, `plan.md`, `state.md`.

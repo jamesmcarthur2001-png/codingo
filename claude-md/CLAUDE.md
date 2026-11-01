@@ -15,6 +15,9 @@ vitest-conventions, browser-test-conventions.
 - Frontend: `npx nx affected -t lint --base=origin/<base>`, then the same with `-t typecheck` and `-t test`.
 - Python, from the service folder: `uv run pytest <test file>`, `uv run ruff check <path>`, `uv run mypy --strict <package>`.
 - TODO (fill in): how to start the local stack, and a one-test-file example for each service.
+- Tests run only on a test database (the test setup's own, or the branch's `docker compose -p btrc-<n>` stack),
+  never on the user's own database (the one in `.env`, the default compose project, the usual dev port).
+  Check which database URL the tests will use before running them. Not sure? Ask; don't run them.
 - Say that something works or passes only together with the command output that shows it.
   If you can't check something, say so in your final message under "Open problems". Don't guess.
 
@@ -26,18 +29,36 @@ New code follows the conventions skills, not the nearby code.
 ## Questions
 Before asking about a requirement, quote the user's words for it verbatim, then ask.
 
+## Code review (beatrice-code-review)
+Map every problem first: list each comment (file:line, what's wrong, fix or dismiss with a reason) before changing anything.
+Then fix them all, and run the checks once at the end.
+
 ## Git
 - The base branch is master, unless the user names another one.
 - One branch per ticket: `BTRC-<n>-short-description`. Reuse it; never create a second branch for the same ticket.
-- Rebase on the base before pushing, push with `--force-with-lease`, and never push to the base branch.
-- After a merge, pull the base branch.
+- Commits, merge requests and pushes: a title only, no description (no body, no trailers).
+- Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`.
+  The type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`); the scope is the service it changes.
+- MR title: the same plus ` (BTRC-<n>)`. Several tickets: join the parts with ` & `, each with its own ticket:
+  `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
+- Finishing a branch: `git pull --rebase origin <base>`, push with `--force-with-lease`, then wait until the pipeline passes
+  (`glab ci status --branch <branch>`; a failed job: `glab ci trace <job> --branch <branch>`, fix, push again).
+  Only then stop the branch's containers (`docker compose -p btrc-<n> down`) and close its worktree.
+- Never push to the base branch. After a merge, pull the base branch.
 - `/feature` runs only when the user types it. Inside it, follow the command's own steps: its scripts do
   the git steps, and after the spec is approved it asks no questions.
 
 ## Python, every service
 - New functions never start with `get_` (`entity_by_id`, not `get_entity_by_id`). Existing names stay.
 - Full years in dates: 2026, not 26.
+- String constants: none by length in the backend; only critical keys (see below) are constants.
+- Page sizes are what one page really shows (usually 10–25), never 100 "just in case".
 - No `# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore` or `# pragma: no cover`. Fix the code.
 
 ## Frontend
 - No `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the code.
+- Strings of more than 6 words become constants; shorter strings stay inline.
+
+## Critical keys, everywhere
+Keys that must match in several places (storage and cache keys, header names, queue and routing keys, event names,
+permission names) are constants, in the backend and in the frontend.

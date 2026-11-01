@@ -1,6 +1,12 @@
 # evermore tests
 General pytest style: the pytest-conventions skill. This file wins where they differ.
 
+## Test database only
+Tests run on the test database, never on the user's own (the one in .env, or the default compose stack).
+Before running them, check which database URL the test setup will connect to. If it's the user's: stop, and run them
+with the test database's URL (or the branch's own `docker compose -p btrc-<n>` stack). Never create or drop anything
+in a database you're not sure is a test one.
+
 ## One environment per package, one view per test
 - Package environment: built once per test package (a top-level folder under tests/, e.g. tests/entities),
   thrown away when the package ends. All modules in the package share it.

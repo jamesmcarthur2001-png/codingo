@@ -45,8 +45,9 @@ STEP_TEMPLATES = {
         "Else start the round's reviews in one message: `python3 \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background "
         "(skip it if review/beatrice-{round}.md exists), the `conventions-reviewer` agent (writes review/conventions-{round}.md){playwright}. "
         "When all are done, run `python3 \"{scripts}/review_round.py\" capture {ticket} {round}` before fixing anything. "
-        "Triage every finding of every source into review/triage.md under `## Round {round}` (Source column: beatrice, conventions, playwright; "
-        "`fix`, or `dismiss` with a reason). "
+        "Map every problem first: triage every finding of every source into review/triage.md under `## Round {round}` (Source column: beatrice, conventions, playwright; "
+        "`fix`, or `dismiss` with a reason), and run `python3 \"{scripts}/review_round.py\" triage-check {ticket} {round}` until it passes. "
+        "Only then fix every `fix` row. "
         "Decision: no `fix` rows → `Phase: {after_review}`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
         "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: GATE-A`."
     ),
@@ -56,15 +57,19 @@ STEP_TEMPLATES = {
         "and continue; never write BLOCKED for this. Then set `Phase: FINISH`."
     ),
     "FINISH": (
-        "In the code root (stay in the worktree): run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background and act on its exit code: "
-        "0 done, it set `Phase: SUMMARY` and kept the worktree; 10 resolve the conflict, git add, run the tests, run it again; "
-        "20 fix the pipeline, run it again; 30 push rejected, you are blocked; 1 or 2 fix the cause from the message, run it again. "
-        "Don't call `ExitWorktree`."
+        "Write `Commit title:` in state.md (`<type>(<service>): <what was done>`, e.g. `feat(evermore): add CSV export`; no ticket, no body) "
+        "and `MR title:` (the commit title + ` ({ticket})`). "
+        "In the code root: run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background (commit, pull --rebase, force-push with a lease, "
+        "wait for the glab pipeline to pass, containers down) and act on its exit code: "
+        "0 done, it set `Phase: SUMMARY`; 10 resolve the conflict, git add, run the tests, run it again; "
+        "20 the pipeline failed: fix it, run the tests, run it again (the pipeline must pass); 30 push rejected, you are blocked; "
+        "1 or 2 fix the cause from the message, run it again."
     ),
     "SUMMARY": (
-        "Write docs/features/{ticket}/summary.md in the worktree (what was built, every review finding of every source and what happened to it, "
-        "the video, what's left for the user, and how to remove the worktree), set `Status: DONE` in state.md and delete the worktree's docs/features/.active. "
-        "Write nothing in the main checkout."
+        "Write docs/features/{ticket}/summary.md in the code root (what was built, every review finding of every source and what happened to it, "
+        "the video, the MR title, what's left for the user) and show it to the user. Then close the worktree: call `ExitWorktree` (action keep) "
+        "and run `python3 \"{scripts}/worktree.py\" remove {ticket} --done` (it copies the feature folder to the main checkout, removes the worktree "
+        "and sets `Status: DONE`; without a worktree it only sets DONE)."
     ),
 }
 PLAYWRIGHT_STEP = (

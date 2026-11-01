@@ -9,19 +9,12 @@ HEADER = '"""\nService manager for entities.\n\n:author: midnight-workflow\n:dat
 
 COMPLIANT_SOURCE = HEADER + '''# ----- Imports ----- #
 
+from app.errors import NotFoundError
 from app.models import Entity
 
 # ----- Consts ----- #
 
-PAGE_SIZE = 50
-
-# ----- Classes ----- #
-
-
-class EntityNotFoundError(Exception):
-    """
-    Raised when the entity does not exist.
-    """
+PAGE_SIZE = 20
 
 # ----- Functions ----- #
 
@@ -29,7 +22,7 @@ class EntityNotFoundError(Exception):
 def read_entity_by_id(session: Session, entity_id: int) -> Entity:
     entity = session.get(Entity, entity_id)
     if entity is None:
-        raise EntityNotFoundError(f"Entity {entity_id} was not found.")
+        raise NotFoundError(f"Entity {entity_id} was not found.")
     return entity
 
 
@@ -223,3 +216,18 @@ def test_check_python_file_or_used_as_condition_returns_no_violations(write_pyth
     violations = check_python_file(path)
 
     assert violations == []
+
+
+def test_check_python_file_exception_outside_errors_file_reports_py_69(write_python_file: Callable[..., Path]):
+    path = write_python_file(HEADER + "# ----- Classes ----- #\n\n\nclass NotFoundError(Exception):\n    \"\"\"\n    Raised when an object is missing.\n    \"\"\"\n    pass\n")
+
+    assert "PY-69" in rule_ids(path)
+
+
+def test_check_python_file_exception_in_errors_file_is_fine(write_python_file: Callable[..., Path]):
+    path = write_python_file(
+        HEADER + "# ----- Classes ----- #\n\n\nclass NotFoundError(Exception):\n    \"\"\"\n    Raised when an object is missing.\n    \"\"\"\n    pass\n",
+        "errors.py",
+    )
+
+    assert "PY-69" not in rule_ids(path)

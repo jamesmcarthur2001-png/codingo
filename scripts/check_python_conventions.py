@@ -548,6 +548,32 @@ def check_exceptions(path: Path, tree: ast.Module) -> list[Violation]:
     return violations
 
 
+def is_errors_file(path: Path) -> bool:
+    return path.stem == "errors" or path.stem.endswith("_errors") or "errors" in path.parent.parts
+
+
+def check_exception_location(path: Path, tree: ast.Module) -> list[Violation]:
+    """
+    Report exception classes defined outside an errors file.
+
+    :param path: The file being checked.
+    :param tree: Its syntax tree.
+    :return: One violation per misplaced exception class.
+    """
+    if is_errors_file(path):
+        return []
+    return [
+        Violation(
+            path,
+            node.lineno,
+            "PY-69",
+            f"Exception class '{node.name}' must be defined in an errors file (errors.py); import it from there.",
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and any(is_exception_base(base) for base in node.bases)
+    ]
+
+
 def is_inside_f_string(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
     current = parents.get(node)
     while current is not None:
@@ -877,6 +903,7 @@ def check_python_file(path: Path, base_source: str | None = None) -> list[Violat
         parents,
     )
     if not is_test_file(path):
+        violations += check_exception_location(path, tree)
         violations += check_parameter_annotations(
             path,
             tree,

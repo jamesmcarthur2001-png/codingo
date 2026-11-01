@@ -157,3 +157,28 @@ def test_gate_a_after_round_five_with_video_moves_to_video(review_feature: Path)
 
     assert state_of(review_feature).field("Phase") == "VIDEO"
     assert "Phase is now VIDEO" in message
+
+
+def test_triage_check_lists_findings_missing_from_the_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
+    run_main(monkeypatch, "capture", "BTRC-1234", "1")
+    (review_feature / "review" / "triage.md").write_text(SOURCED_TRIAGE, encoding="utf-8")
+    capsys.readouterr()
+
+    exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "C1-2" in output
+    assert "C1-1" not in output
+
+
+def test_triage_check_passes_when_every_finding_has_a_row(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
+    run_main(monkeypatch, "capture", "BTRC-1234", "1")
+    full_triage = SOURCED_TRIAGE + "| C1-2 | conventions | - | - | - | general | dismiss | not about a changed line |\n"
+    (review_feature / "review" / "triage.md").write_text(full_triage, encoding="utf-8")
+
+    exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
+
+    assert exit_code == 0

@@ -30,6 +30,7 @@ Applies to code you write or change. Never to unchanged lines.
 
 ## 2. PostgreSQL (CRUD service)
 
+- **Never the user's own database.** Tests connect only to a test database: the test setup's own, or the branch's `docker compose -p btrc-<n>` stack. Before the first run, read which URL the test settings/conftest will use (env vars, `.env.test`, fixtures); if it's the application's database from `.env` or the default compose project, don't run: pass the test database's URL in the test command's environment. When there is no test database, say so instead of running.
 - Test against **real PostgreSQL**, not SQLite. JSON columns, constraints, `ON CONFLICT`, and case sensitivity behave differently. Use the project's test database (docker-compose service or testcontainers) as found in the reference tests.
 - Isolation and data setup: the service's own fixtures, as its `tests/CLAUDE.md` describes (for evermore: one package environment, re-read per test into a session that rolls back). Never rely on rows another test wrote.
 - Migrations: if the feature adds one, have one test that applies it on an empty schema (if the project already does this).

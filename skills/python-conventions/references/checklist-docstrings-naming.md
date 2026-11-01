@@ -9,7 +9,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-29 (auto) No blank line between a class docstring and the class body
 - [ ] PY-17 Docstrings of business-logic functions have `:param` / `:return` / `:raises` as needed; small helpers may have only the description
 - [ ] PY-35 (auto for presence) Every function and method has a docstring (except `__init__` and tests). Judge by hand that endpoint docstrings have only a description, with no `:param`/`:return`/`:raises`.
-- [ ] PY-18 Description is one concise sentence ending in `.` and doesn't mention raising errors
+- [ ] PY-18 Description is one compact sentence ending in `.` that says generally what the function or class does, not its exact behaviour step by step; it doesn't mention raising errors. `:param`/`:return`/`:raises` lines are short
 - [ ] PY-41 (auto) Function, method, and endpoint descriptions are in the imperative mood (`Lock the resource.`, not `Locks the resource.`)
 - [ ] PY-42 (auto) Boolean returns say what the value means (`:return: Whether the asset is overdue.`), never `True when ..., False when ...`
 - [ ] PY-20 Proxy pass-through functions have a single-line docstring only
@@ -22,3 +22,6 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 
 ## Comments
 - [ ] PY-52 (auto) No comments: the only `#` lines are section banners
+
+## Layout
+- [ ] PY-70 Files under `database/create/` and `database/update/` hold only manager classes; helpers live in `utils.py` (or another utils module)

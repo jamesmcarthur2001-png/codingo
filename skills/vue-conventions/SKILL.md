@@ -205,6 +205,7 @@ The same applies to self-closing components: each attribute on its own line, and
 - **Independent loads together**: loads that don't depend on each other run in one `await Promise.all([...])`, not one `await` after another.
 - **Debounced Loading**: Always debounce search and filter-driven loading functions. All debounce timeout values must be declared as named constants (e.g. `const SEARCH_DEBOUNCE_MS = 300`).
 - **Long lists**: use the infinite list / generic loadable resources (built on `v-infinite-scroll`) for paginated lists, feeds, and lazy-loaded datasets.
+- **Realistic page sizes**: request what one page (or one scroll step) actually shows, usually 10–25 items. Never ask for 100 "just in case"; load the next page when the user gets there.
 - **Error Handling**: user-facing errors are shown through `showGlobalSnackbar`; network/API errors go through `handleNetworkError`. Never `console.log` (or any `console.*`) in committed code.
 
 ### Alignment & Typography
@@ -263,7 +264,8 @@ The same applies to self-closing components: each attribute on its own line, and
 - **No `void` before calls**: call the function as it is (`loadPage()`), or `await` it when the order matters. Never write `void loadPage()`.
 - **Prefer `ref` over `let`**: component state in `<script setup>` is a `ref` (`const selectedSiteId = ref<number | null>(null)`), not a reassigned `let`. A `let` isn't reactive, so the template and watchers never see its changes.
 - **Extract Constants**: Never leave magic numbers scattered in template or script bodies; extract them into named constants in `<script lang="ts">`.
-- **Strings**: strings of **4+ words** (messages, long URL paths, multi-line text) become named constants. Strings of **3 words or fewer** (labels, keys, `'Save asset'`) stay inline where they're used: moving them into constants only hides them and makes quick text changes slower. A constant that holds a string of 3 words or fewer is a violation. The frontend threshold (4+ words) is deliberately lower than Python's (5+ words, see `python-conventions` §9).
+- **Strings**: strings of **more than 6 words** (7+: messages, multi-line text) become named constants. Strings of 6 words or fewer stay inline where they're used: moving them into constants only hides them and makes quick text changes slower. A constant that holds a string of 6 words or fewer is a violation, except a critical key.
+- **Critical keys are constants, whatever their length**: strings that must match exactly elsewhere (localStorage/sessionStorage and cache keys, header names, event names, query keys, permission or role names, keys shared with the backend). Define each once and import it. The backend makes only these constants (`python-conventions` §9).
 - **Mappings over long if chains**: behavior that depends on a type or key is a lookup in an object or `Record` (type → value, handler, or component), not one `if` per type. Adding a type then means adding one entry.
 - **Configuration in `.env`**: API base URLs, links to other systems, ports, keys, and every other environment-specific value live in the app's `.env` files (`VITE_*`) and are read through `import.meta.env` in one config module. Never hardcode them.
 - **Exports at the bottom**: in `.ts` files, never export at the declaration (`export const`, `export function`, `export interface`, `export type`, `export enum`, `export class`). Declare everything first, then end the file with one export section (`.vue` files export nothing, see §1):

@@ -4,11 +4,13 @@ Helps the parallel review round: stores the conventions and Playwright reviewers
 
 Usage: python3 review_round.py capture BTRC-1234 <round>
        python3 review_round.py playwright-needed BTRC-1234 <round>
+       python3 review_round.py triage-check BTRC-1234 <round>
 `capture` reads review/conventions-<round>.md and review/playwright-<round>.md (findings as `## <id> | <file:line> | <rule>`),
 writes review/<source>-<round>.json with each flagged line's text as it is now (run it before fixing anything),
 notes findings dismissed in earlier rounds, and records which frontend files the Playwright reviewer saw.
 `playwright-needed` prints `yes` or `no`: yes in round 1, later only when frontend files changed since its last run.
-Exit codes: 0 done, 2 setup error (no feature, git failed).
+`triage-check` lists the round's findings that have no row under `## Round <round>` in review/triage.md, so every problem is mapped before fixing starts.
+Exit codes: 0 done, 1 findings missing from triage.md, 2 setup error (no feature, git failed).
 
 :author: midnight-workflow
 :date: 28/10/2026
@@ -24,12 +26,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from feature_state import FRONTEND_SECTION, FeatureNotFoundError, FeatureState, PLAYWRIGHT_REVIEWER_OPTION, load_feature_state
-from gate_a import Dismissal, find_dismissal, normalize_path, read_line_text, review_directory, sync_dismissed
+from gate_a import TRIAGE_FILE_NAME, TRIAGE_ROUND_PATTERN, Dismissal, find_dismissal, load_round_findings, normalize_path, read_line_text, review_directory, sync_dismissed
 from git_changes import GitError, changed_files, diff_base_commit
 
 # ----- Consts ----- #
 
+MISSING_TRIAGE_EXIT_CODE = 1
 SETUP_ERROR_EXIT_CODE = 2
+TRIAGE_ID_PATTERN = re.compile(r"^\|\s*(?P<id>[RCP]\d+-\d+)\s*\|")
 CAPTURED_SOURCES = ("conventions", "playwright")
 PLAYWRIGHT_SOURCE = "playwright"
 FINDING_HEADER_PATTERN = re.compile(
@@ -237,13 +241,55 @@ def is_playwright_needed(state: FeatureState, round_number: int) -> bool:
     return frontend_fingerprint(state) != last_fingerprint
 
 
+def triaged_ids(feature_directory: Path, round_number: int) -> set[str]:
+    """
+    Read the finding ids that have a row in the round's section of review/triage.md.
+
+    :param feature_directory: The feature's directory.
+    :param round_number: The review round.
+    :return: The triaged ids.
+    """
+    triage_path = review_directory(feature_directory) / TRIAGE_FILE_NAME
+    if not triage_path.is_file():
+        return set()
+    current_round = 0
+    ids: set[str] = set()
+    for triage_line in triage_path.read_text(encoding="utf-8").splitlines():
+        round_match = TRIAGE_ROUND_PATTERN.match(triage_line)
+        if round_match is not None:
+            current_round = int(round_match.group("number"))
+            continue
+
+        id_match = TRIAGE_ID_PATTERN.match(triage_line.strip())
+        if current_round == round_number and id_match is not None:
+            ids.add(id_match.group("id"))
+
+    return ids
+
+
+def untriaged_findings(state: FeatureState, round_number: int) -> list[str]:
+    """
+    List the round's findings, from every source, that triage.md doesn't decide yet.
+
+    :param state: The feature's state.
+    :param round_number: The review round.
+    :return: One `<id> <file:line> <rule>` line per missing finding.
+    """
+    triaged = triaged_ids(state.feature_directory, round_number)
+    return [
+        f"{finding_id} {record.get('file', '')}:{record.get('line', '')} {record.get('rule', '')}"
+        for finding_id, record in sorted(load_round_findings(state.feature_directory, round_number).items())
+        if finding_id not in triaged
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Support the parallel review round of a feature.",
     )
     parser.add_argument(
         "action",
-        choices=["capture", "playwright-needed"],
+        choices=["capture", "playwright-needed", "triage-check"],
     )
     parser.add_argument("ticket", help="The ticket, e.g. BTRC-1234.")
     parser.add_argument(
@@ -258,6 +304,15 @@ def main() -> int:
             for message in capture_round(state, arguments.round):
                 print(message)
             return 0
+        if arguments.action == "triage-check":
+            missing = untriaged_findings(state, arguments.round)
+            if len(missing) == 0:
+                print(f"Every finding of round {arguments.round} is in triage.md. Fix the `fix` rows now.")
+                return 0
+            print(f"Not in triage.md under `## Round {arguments.round}` yet; add a row for each before fixing anything:")
+            for missing_line in missing:
+                print(f"- {missing_line}")
+            return MISSING_TRIAGE_EXIT_CODE
         print(
             "yes" if is_playwright_needed(state, arguments.round) else "no",
         )

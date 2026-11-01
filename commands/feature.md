@@ -1,5 +1,5 @@
 ---
-description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, Gate A, parallel review rounds (Beatrice, conventions, Playwright; up to 5), optional video, finish script, summary. Driven by docs/features/<ticket>/state.md and the Stop hook."
+description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, Gate A, parallel review rounds (Beatrice, conventions, Playwright; up to 5), optional video, finish script (CI must pass), summary, worktree closed. Driven by docs/features/<ticket>/state.md and the Stop hook."
 argument-hint: "<BTRC-n> \"<description>\" [base] [--no-worktree] | resume <BTRC-n>"
 ---
 
@@ -13,16 +13,20 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 1. `state.md` is the truth. Update it after every step, before the next one. After a compaction, read it again.
 2. Run every script from the **code root** (the session's directory after `EnterWorktree`; the scripts find the feature folder from there):
    `python3 "$HOME/.claude/midnight-workflow/scripts/<name>.py" ...`
-3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder lives in the worktree too, at `<worktree>/docs/features/<Ticket>/` (it is written there from the start and stays there after finish); every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
+3. Code lives in the **code root**: the worktree in `Worktree:` (`.claude/worktrees/<Branch>`), or the main checkout when `Worktree mode: none`. After setup, the session works **inside** the worktree (`EnterWorktree`, step S). The feature folder lives in the worktree too, at `<worktree>/docs/features/<Ticket>/` (it is written there from the start; when the worktree is closed at the end, `worktree.py remove` copies it to the main checkout's `docs/features/<Ticket>/`); every `docs/features/<Ticket>/` path below is relative to the code root. Inside the worktree Claude Code refuses edits to the main checkout, Bash run there, and git redirected there (`git -C <main>`, `--git-dir`, `GIT_DIR`, `cd <main> && git …`); don't try them. Run commands with a subshell `(cd <folder in the worktree> && ...)` when needed, never a bare `cd`.
 4. Scope: new code follows the conventions. Existing lines change only when the task needs them changed. Never rename, reformat or "fix" existing code you don't need to touch.
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
 7. Try limits: a step fails → fix → run again. The scripts write `Status: BLOCKED: <reason>` on the 3rd failed run of the same step. For steps without a script (tests), do the same yourself. When Status is BLOCKED: tell the user the reason and stop. The VIDEO step is never a reason to block.
 8. While `run_beatrice.py`, `gate_a.py` or `finish_branch.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
 9. Don't commit during the build. `finish_branch.py` makes the commit.
+   Commits, merge requests and pushes get a **title only, no description** (no body, no trailers, no `-o merge_request.description`).
+   Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, comma-separated when several. No ticket in the commit.
+   MR title: the same, followed by ` (BTRC-<n>)`. With more than one ticket, join the parts with ` & `: `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
 10. Any `docker compose` command for this branch uses `-p <Compose project>` and the files in `Compose files:`.
 11. Never add `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `# pragma: no cover`. Fix the code instead.
 12. Never create, rename or switch branches yourself. `worktree.py` does it, and it never creates a second branch for the same BTRC-n.
+13. Tests run only on a **test database**: the one the service's test setup creates, or this branch's own stack (`-p <Compose project>`). Never on the user's own database (the one in `.env`, the default compose project, the usual local dev port). Before the first test run, find which database URL the tests will use and write it as `Test database:` in state.md; if it is the user's database, don't run the tests: point them at a test database through the test command's environment, and if none exists, write `Status: BLOCKED: no test database` (before approval: ask).
 
 ## state.md format
 Top fields are `Name: value` lines before the first `## `. Change one by rewriting its line.
@@ -37,6 +41,8 @@ Top fields are `Name: value` lines before the first `## `. Change one by rewriti
 | `Slice` / `Slices` | current slice / number of slices in plan.md |
 | `Round` | review round, 1–5 |
 | `Tries` | `0`, or `<STEP> <failed runs>` (e.g. `TESTS 1`) |
+| `Test database` | the database URL the tests use (host, port, name; never a password), written before the first test run |
+| `Commit title` / `MR title` | written in step F: `feat(evermore): add CSV export` and `feat(evermore): add CSV export (BTRC-1234)` |
 
 `## Frontend` (filled in by the grill, step G): `- Touches frontend:`, `- Playwright reviewer:`, `- Video:`, `- HTML preview:`, `- Dev server:`, `- App URL:`, `- Backend:`, `- Login:` (yes/no or a value each). `review_round.py` adds `- Playwright checked:`.
 
@@ -50,7 +56,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 - `resume BTRC-<n>` → go to **R**.
 
 ## R. Resume
-1. Find the feature: `.claude/worktrees/*/docs/features/BTRC-<n>/state.md` (a worktree feature), else `docs/features/BTRC-<n>/state.md` in this checkout (a `--no-worktree` feature, or one started before the docs lived in worktrees). If none exists: tell the user and stop.
+1. Find the feature: `.claude/worktrees/*/docs/features/BTRC-<n>/state.md` (a worktree feature), else `docs/features/BTRC-<n>/state.md` in this checkout (a `--no-worktree` feature, a finished one whose worktree was closed, or one started before the docs lived in worktrees). If none exists: tell the user and stop.
    - If it lives in a worktree and the session isn't in that worktree yet (`claude --continue` usually returns it there by itself), call `EnterWorktree` with the worktree's absolute path.
    - An old feature folder in the main checkout with a worktree recorded: run `worktree.py create BTRC-<n>` (step S4); it moves the folder into the worktree.
 2. Make sure the `docs/features/.active` next to the feature folder names `BTRC-<n>`. Never write a `.active` in the main checkout for a worktree feature.
@@ -96,6 +102,9 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
     Compose project: btrc-1234
     Compose files: docker-compose.yml
     Beatrice skill:
+    Test database:
+    Commit title:
+    MR title:
     Approved: no
     Session:
     Phase: EXPLORE
@@ -142,7 +151,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 
 ## G. Grill (Phase: GRILL)
 1. Load the `grill-with-docs` skill and follow it fully with the user. Input: the description, `context.md`, `patterns.md`.
-2. **Frontend scope** (only when `- Touches frontend: yes`): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): Playwright reviewer, video, HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
+2. **Frontend scope** (only when `- Touches frontend: yes`): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): Playwright reviewer, video (always suggest it, recommended yes; `- Video: no` only when the user says they don't want one), HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
 3. **HTML preview** (only when `- HTML preview: yes`): before the spec, load the `html-mockups` skill and write `docs/features/<Ticket>/mockups/<screen>.html` for each new or changed screen (plain HTML/CSS, no CDN, light/dark toggle, RTL toggle, empty/loading/error states). Tell the user the paths and ask for changes in the next grill round. Repeat until they approve the mockups.
 4. Every inconsistency `I-n` must end as a decision.
 5. Ask for the path of Beatrice's skill here if setup didn't find it.
@@ -195,13 +204,13 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    ```markdown
    | Test name | What it checks | Expected result | File |
    |---|---|---|---|
-   | `test_entity_by_id_missing_id_raises_entity_not_found_error` | Reading an entity id that doesn't exist | Raises `EntityNotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
+   | `test_entity_by_id_missing_id_raises_not_found_error` | Reading an entity id that doesn't exist | Raises `NotFoundError` with "Entity 7 was not found." | `services/evermore/tests/entities/test_read_entity.py` |
    ```
    Test name = the exact pytest function name / `it(...)` / `test(...)` string. File = path relative to the **repo root**. Cover every REQ, EC and new code path. No `|` inside a cell.
 2. Write the tests. Load before each kind: `pytest-conventions` + `backend-test-infra` (backend), `vitest-conventions` (frontend), `browser-test-conventions` (Playwright). A service's `tests/CLAUDE.md` wins over the skills.
 3. The test-plan hook blocks any test whose exact name isn't in the first column. Add the row first, then write the test.
 4. Test helper files (conftest, environment builders, factories, MSW handlers) that aren't in the File column: add them to the last slice's `Files:` in plan.md and log why.
-5. Run the `test` command and every `coverage*` command from `## Commands`, in the code root.
+5. Check `Test database:` (rule 13) before the first run. Then run the `test` command and every `coverage*` command from `## Commands`, in the code root.
    - Failing test that shows a real bug → fix the code, log it.
    - Changed lines without coverage → add a planned test. Only if a line truly can't be tested, add `- path:lines: reason` under `## Coverage exemptions`, with the full repo-relative path (e.g. `- services/evermore/app/x.py:40-42: unreachable after the validator`).
 6. Limit: after a failed run set `Tries: TESTS <failed runs>`. On the 3rd failed run write `Status: BLOCKED: tests fail after 2 fixes` and stop.
@@ -236,7 +245,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" capture <Ticket> <Round>
    ```
 4. Read every source: `review/beatrice-<Round>.md` (findings `## R<round>-<i> | <2/2 or 1/2> | <file:line> | <rule>`), `review/conventions-<Round>.md` (`## C<round>-<i> | <file:line> | <rule>`) and `review/playwright-<Round>.md` (`## P<round>-<i> | <file:line> | <rule>`).
-5. Triage. For every finding, open the code and check it yourself. A Beatrice 1/2 counts as much as 2/2. A finding marked "Dismissed in round N, because …" keeps that decision unless the line changed. Append to `review/triage.md` (the `#` column is the finding's id, the Source column says who reported it):
+5. **Map every problem first, then fix.** Don't fix anything while you read. For every finding, open the code and check it yourself. A Beatrice 1/2 counts as much as 2/2. A finding marked "Dismissed in round N, because …" keeps that decision unless the line changed. Append to `review/triage.md` (the `#` column is the finding's id, the Source column says who reported it):
    ```markdown
    ## Round <Round>
    | # | Source | Marks | File:line | Rule | Finding | Decision | Reason |
@@ -246,6 +255,11 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    | P1-1 | playwright | - | frontend/src/views/entities/EntityList.vue:30 | VU-52 | text unreadable in dark theme | dismiss | screenshot shows the theme class is applied; flaky render |
    ```
    `dismiss` needs a Reason pointing to a line, a rule or a screenshot. No `|` inside a cell. Marks is `-` for conventions and playwright.
+   When the table is complete, check nothing is missing:
+   ```
+   python3 "$HOME/.claude/midnight-workflow/scripts/review_round.py" triage-check <Ticket> <Round>
+   ```
+   Exit 1 lists the findings without a row: add them, run it again. Exit 0: now fix **every** `fix` row, one after another, then run the checks once.
 6. Next (the round rules count every source together):
    - No `fix` rows this round → set `Phase: VIDEO` when `- Video: yes`, else `Phase: FINISH`.
    - `fix` rows and `Round` < 5 → fix them all, then set `Round: <Round+1>` and `Phase: GATE-A`.
@@ -258,25 +272,27 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 4. Set `Phase: FINISH`.
 
 ## F. Finish (Phase: FINISH)
-Stay in the code root (the worktree). Don't call `ExitWorktree`: the worktree is kept, with the feature folder in it.
+Stay in the code root (the worktree) for this step.
+0. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`. Without `Commit title:` the script uses `feat(<changed services>): <spec title>`; a title in another format is a setup error (exit 2).
 1. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
    ```
    python3 "$HOME/.claude/midnight-workflow/scripts/finish_branch.py" <Ticket>
    ```
-   It checks the code root is on `Branch` (never the base), commits, `git pull --rebase origin <Base>`, pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. It keeps the worktree (with `Worktree mode: none` it updates the base in the main checkout instead) and sets `Phase: SUMMARY`. Running it again resumes.
+   It checks the code root is on `Branch` (never the base), commits with the title only, `git pull --rebase origin <Base>`, force-pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline (`glab ci status`) until it **passes**, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. With `Worktree mode: none` it also updates the base in the main checkout. It sets `Phase: SUMMARY`; the worktree is closed in step Z. Running it again resumes.
+   The feature isn't finished until the pipeline of the pushed commit passed. Never write the summary on a failed or unfinished pipeline.
 2. Act on the exit code:
    | Code | Do |
    |---|---|
    | 0 | Done: `Phase: SUMMARY`. Go to Z. |
    | 10 | Rebase conflict: resolve the listed files in the code root (remove every `<<<<<<<`/`>>>>>>>` marker), `git add <files>`, run the `test` command, run the script again. Don't run `git rebase --continue` yourself. |
-   | 20 | Pipeline failed: fix the cause from the log tail in the code root, run the tests, run the script again. |
+   | 20 | Pipeline failed: read the failing job's log tail (or `glab ci trace <job> --branch <Branch>`), fix the cause in the code root, run the tests, run the script again. Repeat until the pipeline passes. |
    | 30 | Push rejected: someone else pushed. The script wrote BLOCKED. Stop. |
    | 1 | Read the message, fix the cause, run again. |
    | 2 | Setup error (state.md fields, wrong branch checked out, or another run is still going). Fix the cause, run again. |
    The script writes BLOCKED itself after 3 runs with the same code.
 
 ## Z. Summary (Phase: SUMMARY)
-1. Write `docs/features/<Ticket>/summary.md` in the code root (the worktree; never the main checkout):
+1. Write `docs/features/<Ticket>/summary.md` in the code root:
    ```markdown
    # Summary: <Ticket> <feature>
    ## Built
@@ -290,11 +306,20 @@ Stay in the code root (the worktree). Don't call `ExitWorktree`: the worktree is
    ## Video
    - docs/features/<Ticket>/video/<Ticket>.webm (or: not recorded, because …; or: not requested)
    ## Finish
-   - Branch <Branch> pushed · pipeline <result> · worktree kept at <absolute worktree path> (or: main checkout, base updated)
-   - Remove the worktree when you no longer need these docs: from the main checkout, `python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove <Ticket>` (the branch stays). That deletes this feature folder too.
+   - Branch <Branch> pushed · pipeline passed · containers stopped · worktree closed (or: main checkout, base updated)
+   - Commit: `<Commit title>` · MR title: `<MR title>`
+   - Feature folder kept at <main checkout>/docs/features/<Ticket>/
    ## Needs your attention
    - <anything open, risky or left undone>
    ```
    List **every** finding of every source from every round.
-2. Set `Status: DONE` in state.md. Delete the code root's `docs/features/.active`.
-3. Show the user the summary and the feature folder path.
+2. Show the user the summary.
+3. Close the worktree (it sets `Status: DONE`; the Stop hook keeps you going until it does):
+   - Worktree feature: call **`ExitWorktree`** with action `keep` (the script removes it), then from the main checkout run
+     ```
+     python3 "$HOME/.claude/midnight-workflow/scripts/worktree.py" remove <Ticket> --done
+     ```
+     It copies the feature folder to `<main checkout>/docs/features/<Ticket>/`, runs `git worktree remove` (the branch stays) and sets `Status: DONE` in the copy. If `ExitWorktree` isn't available, run the same command from the worktree, and run nothing in it afterwards.
+     Exit 1 (uncommitted files): show `git status` of the worktree, and stop with that message.
+   - `Worktree mode: none`: run the same command; it only sets `Status: DONE` and deletes `.active`.
+4. Tell the user the feature folder path and the MR title.
