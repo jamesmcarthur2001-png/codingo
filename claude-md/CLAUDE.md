@@ -55,6 +55,8 @@ Then fix them all, and run the checks once at the end.
 ## Python, every service
 - New functions never start with `get_` (`entity_by_id`, not `get_entity_by_id`). Existing names stay.
 - Full years in dates: 2026, not 26.
+- Keep docstrings short: one sentence on what the function or class is for, not how it works.
+  Don't narrate its steps, branches or edge cases; the code already says that. `:param:`/`:return:` lines are a few words each.
 - Readability over sharing: no helper that bundles session steps (add + commit + refresh in one call), and no
   function that returns a shared class part (e.g. a pydantic Field used by many models). Write them out where used.
 - String constants: none by length in the backend; only critical keys (see below) are constants.
