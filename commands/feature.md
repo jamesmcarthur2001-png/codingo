@@ -18,8 +18,8 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
 7. Try limits: a step fails → fix → run again. The scripts write `Status: BLOCKED: <reason>` on the 3rd failed run of the same step. For steps without a script (tests), do the same yourself. When Status is BLOCKED: tell the user the reason and stop. The VIDEO step is never a reason to block.
-8. While `gate_a.py` or `finish_branch.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
-9. Don't commit during the build. `finish_branch.py` makes the commit.
+8. While `gate_a.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
+9. Don't commit during the build. You commit once, in step F.
    Commits, merge requests and pushes get a **title only, no description** (no body, no trailers, no `-o merge_request.description`).
    Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, joined by a comma and a space when several (`feat(evermore, frontend): …`). No ticket in the commit.
    MR title: the same, followed by ` (BTRC-<n>)`. With more than one ticket, join the parts with ` & `: `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
@@ -80,7 +80,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
      If `EnterWorktree` isn't available in this Claude Code version: stay in the main checkout, but read and write the feature folder only with absolute paths into the worktree (`<repo root>/.claude/worktrees/<Branch>/docs/features/<Ticket>/`), never the main checkout's `docs/features/`. Tell the user once that the worktree's folder `CLAUDE.md` files may not load (read them yourself before editing a folder).
    - With `--no-worktree`: add `--no-worktree` to the same command. It switches the main checkout to `<Branch>` (creating it from `origin/<Base>` or reusing it), writes the feature folder in the main checkout's `docs/features/` (that checkout is the branch's code root) and records `Worktree mode: none`.
    Exit 2: another branch for this BTRC-n exists, or a name is missing: tell the user and stop. Exit 1: git failed (e.g. uncommitted changes in the main checkout): show the message and stop.
-5. Fill `## Commands` from the `service-map` skill and the root/service `CLAUDE.md`. Each runs in the code root through `bash -lc`. Names starting with `coverage` must print diff-cover output and pass `--include-untracked` (new files stay untracked until finish). The test command must write the coverage report the coverage command reads. Example:
+5. Fill `## Commands` from the root/service `CLAUDE.md` and the services' own files (`pyproject.toml`, `package.json`, CI config). Each runs in the code root through `bash -lc`. Names starting with `coverage` must print diff-cover output and pass `--include-untracked` (new files stay untracked until finish). The test command must write the coverage report the coverage command reads. Example:
    ```
    - lint: npx nx affected -t lint --base=origin/<Base>
    - typecheck: npx nx affected -t typecheck --base=origin/<Base>
@@ -88,7 +88,6 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    - coverage-backend: diff-cover services/evermore/coverage.xml --compare-branch=origin/<Base> --include-untracked --fail-under=100
    ```
    No test or coverage command for twilight: it has no tests.
-   If the service map is missing or mostly `TODO`, say that `/map-services` gives better results, and use what CLAUDE.md says.
 6. `Compose files:` = the `-f` files you use to start this branch's containers (space-separated, relative to the code root), e.g. `docker-compose.yml docker-compose.dev.yml`. Start containers only with `docker compose -p <Compose project> -f <each file> up -d`.
 7. Complete `docs/features/BTRC-<n>/state.md` in the code root (`worktree.py` wrote its first fields; keep them). It ends up like:
     ```markdown
@@ -229,12 +228,12 @@ Five reviewers look at the branch, each for one kind of problem; a verifier then
 
 1. If `python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>` passes, this round is triaged: skip to step 6.
 2. **Reviewers.** `python3 "<scripts>/review_round.py" expected <Ticket> <Round>` lists them: `correctness`, `conventions`, `tests`, `spec`, and `playwright` when `- Playwright reviewer: yes`. In **one message**, start the agent `<source>-reviewer` for every one whose `review/<source>-<Round>.md` is missing or has no `Done:` line, all at once (up to 5). Give each: feature directory, code root, `Base`, round. The `playwright-reviewer` also gets the `## Frontend` answers (plus the test password if the user typed it; never write it to a file).
-   Each writes `review/<source>-<Round>.md`: `## <id> | <file:line> | <rule>` per finding (ids `K` correctness, `C` conventions, `T` tests, `S` spec, `P` playwright, e.g. `K1-3`), ending with `Done: <k> finding(s)`. Each prompt says what that reviewer does not judge, so they don't overlap.
+   Each writes `review/<source>-<Round>.md`: per finding, `## <where> | <rule>` (a `file:line`, or for playwright a place in the app) and the problem, ending with `Done: <k> finding(s)`. Reviewers write no ids. Each prompt says what that reviewer does not judge, so they don't overlap. Reviewers focus on what the branch changed, but may report a problem in code the branch uses or affects (conventions only on lines the branch wrote).
 3. **As each reviewer finishes** (don't wait for the others), check and store its file before anything changes:
    ```
    python3 "<scripts>/review_round.py" capture <Ticket> <Round> --source <source>
    ```
-   Exit 1 (missing file, no `Done:` line, a count that doesn't match, a header that isn't a finding): start that reviewer again. 3 failures in a row block the feature. Exit 0: when it found something, start a **`finding-verifier`** for that source right away, with feature directory, code root, `Base`, round and the source. It writes `review/verify-<source>-<Round>.md`: `## <id> | sure|unsure|invalid` per finding, with evidence. When it finishes, run
+   It numbers the findings (`K` correctness, `C` conventions, `T` tests, `S` spec, `P` playwright, e.g. `K1-3`, written into the file). Exit 1 (missing file, no `Done:` line, a count that doesn't match, a header that isn't a finding): start that reviewer again. 3 failures in a row block the feature. Exit 0: when it found something, start a **`finding-verifier`** for that source right away, with feature directory, code root, `Base`, round and the source. It writes `review/verify-<source>-<Round>.md`: `## <id> | sure|unsure|invalid` per finding, with evidence. When it finishes, run
    ```
    python3 "<scripts>/review_round.py" verify-check <Ticket> <Round> --source <source>
    ```
@@ -266,24 +265,22 @@ Five reviewers look at the branch, each for one kind of problem; a verifier then
 4. Set `Phase: FINISH`.
 
 ## F. Finish (Phase: FINISH)
-Stay in the code root (the worktree) for this step.
-0. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`. Without `Commit title:` the script uses `feat(<changed services>): <spec title>`; a title in another format is a setup error (exit 2).
-1. Run **in the background** and wait for the notification (it waits up to 45 min for the pipeline):
-   ```
-   python3 "$HOME/.claude/scripts/finish_branch.py" <Ticket>
-   ```
-   It checks the code root is on `Branch` (never the base), commits with the title only, `git pull --rebase origin <Base>`, force-pushes `HEAD:refs/heads/<Branch>` with a lease on the last pushed commit, waits for the pipeline (`glab ci status`) until it **passes**, and runs `docker compose -p <Compose project> -f … down --remove-orphans`. With `Worktree mode: none` it also updates the base in the main checkout. It sets `Phase: SUMMARY`; the worktree is closed in step Z. Running it again resumes.
-   The feature isn't finished until the pipeline of the pushed commit passed. Never write the summary on a failed or unfinished pipeline.
-2. Act on the exit code:
-   | Code | Do |
-   |---|---|
-   | 0 | Done: `Phase: SUMMARY`. Go to Z. |
-   | 10 | Rebase conflict: resolve the listed files in the code root (remove every `<<<<<<<`/`>>>>>>>` marker), `git add <files>`, run the `test` command, run the script again. Don't run `git rebase --continue` yourself. |
-   | 20 | Pipeline failed: read the failing job's log tail (or `glab ci trace <job> --branch <Branch>`), fix the cause in the code root, run the tests, run the script again. Repeat until the pipeline passes. |
-   | 30 | Push rejected: someone else pushed. The script wrote BLOCKED. Stop. |
-   | 1 | Read the message, fix the cause, run again. |
-   | 2 | Setup error (state.md fields, wrong branch checked out, or another run is still going). Fix the cause, run again. |
-   The script writes BLOCKED itself after 3 runs with the same code.
+You do this step yourself, in the code root (the worktree), one command at a time. Record each finished step as a line under `## Finish` in state.md (e.g. `- push: done (<commit>)`), so a resume skips what's done.
+1. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`.
+2. Check: `git branch --show-current` is `<Branch>`, never `<Base>`. If not, write `Status: BLOCKED: wrong branch checked out` and stop.
+3. Commit everything, title only: `git add -A`, then `git commit -m "<Commit title>"` (no `-m` body, no trailers). `docs/features/` is git-ignored, so it isn't committed.
+4. Rebase on the base: `git fetch origin`, then `git pull --rebase origin <Base>`.
+   - Conflict: resolve each listed file (no `<<<<<<<` / `>>>>>>>` left), `git add <files>`, run the `test` command, then `git -c core.editor=true rebase --continue`. Repeat until the rebase is done.
+5. Push: `git push --force-with-lease origin HEAD:refs/heads/<Branch>`.
+   - Rejected because someone else pushed to the branch: write `Status: BLOCKED: someone else pushed to <Branch>` and stop. Never force over it.
+6. CI must pass: run `glab ci status --branch <Branch>` every minute (Bash `sleep 60` between runs, up to 45 minutes) until the pipeline of the pushed commit finishes.
+   - Passed: go on.
+   - Failed: `glab ci trace <job> --branch <Branch>` for the failing job, fix the cause, run the tests, commit with the same title style (`fix(<service>): <what was fixed>`), and go back to step 4.
+   - Manual, blocked or canceled, or still running after 45 minutes: write `Status: BLOCKED: pipeline <state>` and stop.
+   Never write the summary on a failed or unfinished pipeline.
+7. Stop the containers: `docker compose -p <Compose project> -f <each Compose file> down --remove-orphans` (volumes are kept).
+8. With `Worktree mode: none`: update the base in the main checkout (`git fetch origin <Base>:<Base>`).
+9. Set `Phase: SUMMARY`. The worktree is closed in step Z.
 
 ## Z. Summary (Phase: SUMMARY)
 1. Write `docs/features/<Ticket>/summary.md` in the code root:

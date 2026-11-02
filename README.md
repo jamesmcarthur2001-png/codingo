@@ -1,6 +1,6 @@
 # claude-workflow
 
-A Claude Code workflow for our monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, a shared models library, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for the review round (5 reviewers, a verifier each, up to 5 at once). It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
+A Claude Code workflow for our monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, a shared models library, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for the review round (5 reviewers, a verifier each, up to 5 at once). Everything lives plainly under `~/.claude` (Ubuntu, user level). The design is in [PROPOSAL.md](PROPOSAL.md).
 
 ```
 /feature BTRC-1234 "add CSV export to entities" [base] [--no-worktree]
@@ -24,7 +24,7 @@ After (no questions; the Stop hook keeps it going until DONE or BLOCKED)
                  each file ends `Done: k finding(s)` → capture → a finding-verifier per reviewer: sure / unsure / invalid
                  → triage.md (sure = fix, invalid = dismiss, unsure = you decide), triage-check → fix → Gate A … ≤ 3 rounds
  10 Video        (suggested for every frontend change; skipped only when you say no) one Playwright recordVideo run → video/BTRC-1234.webm; never blocks
- 11 Finish       finish_branch.py (in the worktree): commit (title only: feat(<service>): …), pull --rebase,
+ 11 Finish       done by the orchestrator in the worktree: commit (title only: feat(<service>): …), pull --rebase,
                  force-push with a lease, glab pipeline must pass, containers down
  12 summary.md   then ExitWorktree + worktree.py remove --done: feature folder copied to the main checkout, worktree closed
 ```
@@ -33,37 +33,21 @@ Dropped connection? `claude --continue`, then `/feature resume BTRC-1234`. Every
 
 ---
 
-## Install (Ubuntu, user level)
+## Setup (Ubuntu, user level)
 
 Requirements: `python3` ≥ 3.10, `git`, and in the monorepo `uv` (with `ruff`, `mypy`, `pytest-cov`, `diff-cover` as dev dependencies of each Python service), the frontend's `eslint` in `node_modules`, `glab` logged in, and `docker compose`.
 
-```bash
-./install.sh
-```
-
-It copies, and records what it copied in `~/.claude/workflow-installed-files.txt`:
+Everything lives plainly under `~/.claude/`, copied from this repo by hand:
 
 | From the repo | To |
 |---|---|
-| `commands/feature.md`, `map-services.md`, `map-library.md` | `~/.claude/commands/` (`/feature`, `/map-services`, `/map-library`) |
-| `agents/explorer.md`, the five reviewers (`correctness-`, `conventions-`, `tests-`, `spec-`, `playwright-reviewer.md`), `finding-verifier.md`, `doc-auditor.md`, `skill-mapper.md` | `~/.claude/agents/` |
+| `commands/*.md` | `~/.claude/commands/` (`/feature`, `/map-library`) |
+| `agents/*.md` | `~/.claude/agents/` |
 | `skills/*` | `~/.claude/skills/` |
 | `scripts/**/*.py` | `~/.claude/scripts/` (executable) |
-| `settings/hooks.json` | merged into the `hooks` of `~/.claude/settings.json` |
+| `settings/hooks.json` | the `hooks` of `~/.claude/settings.json` |
 
-The settings merge backs up `settings.json` first (`settings.json.bak-<time>`), keeps every other key and hook, and replaces its own earlier entries, so running `install.sh` again updates without duplicates. A file it would overwrite that it didn't install (e.g. your own `~/.claude/skills/python-conventions`) is backed up under `~/.claude/workflow-backup/`. Hook entries from the old `~/.claude/midnight-workflow/` install are replaced too.
-
-```bash
-./uninstall.sh
-```
-
-removes exactly the recorded files and the workflow's hook entries, and puts the backed-up files back.
-
-Then:
-1. Copy the CLAUDE.md drafts from `claude-md/` into the monorepo (see `claude-md/README.md`).
-2. Generate the service map once from the monorepo root: `/map-services`.
-
-`agents/review-*.md` from the old flow are kept in `unused/agents/` and are not installed.
+Then copy the CLAUDE.md drafts from `claude-md/` into the monorepo (see `claude-md/README.md`).
 
 ## Model settings (LiteLLM)
 
@@ -113,7 +97,7 @@ Hooks also accept `"onFailure": "block"` (block the action when the hook itself 
 
 ## The workflow scripts
 
-Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
+Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files from `docs/features/<ticket>/state.md`. The long one (`gate_a`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
 
 | Script | Does | Exit codes |
 |---|---|---|
@@ -121,7 +105,6 @@ Run from the repository root (the folder that holds `docs/features/`) as `python
 | `check_slice.py <T> <n>` | Changed-line checks (conventions, ruff, eslint, `mypy --strict`, suppressions) + scope (changed, deleted or renamed files outside slices 1..n fail; changed existing lines are listed). Advances `Slice`/`Phase` on pass. | 0 pass · 1 problems · 2 setup (incl. git errors, unknown base) |
 | `gate_a.py <T>` | Same checks over the branch (scope = all slices + test-plan files), then every `## Commands` entry through `bash -lc`; `coverage*` entries must use `diff-cover --include-untracked`, are read as diff-cover output, minus `## Coverage exemptions` (exact repo-relative paths). Fails if diff-cover saw no lines while code changed. Syncs dismissed findings per source from `review/triage.md` (Source column: correctness, conventions, tests, spec, playwright; beatrice for older features). Sets `Phase: GATE-B`, or `VIDEO`/`FINISH` once round 3 is triaged. | 0 · 1 · 2 |
 | `review_round.py expected <T> <round>` · `capture <T> <round> --source <s>` · `verify-check <T> <round> --source <s>` · `triage-check <T> <round>` | `expected` prints the round's reviewers. `capture` checks `review/<s>-<round>.md` (every `## ` line is a finding `## <id> \| <file:line> \| <rule>` of that source and round, and the last `Done: <k> finding(s)` matches) and stores the findings with each flagged line's text in `<s>-<round>.json`, noting earlier dismissals. `verify-check` checks `review/verify-<s>-<round>.md` gives every finding exactly one `sure`/`unsure`/`invalid`. `triage-check` checks every expected source is captured and verified and every finding has a triage.md row whose Verdict matches and whose Decision follows it (sure → fix, invalid → dismiss, unsure → either, a dismiss with a Reason). A source failing capture or verify-check 3 times in a row blocks the feature. | 0 · 1 incomplete · 2 setup |
-| `finish_branch.py <T>` | In the code root: checks the code root (worktree, or the main checkout when `Worktree mode: none`) is on `Branch` and `Branch` ≠ `Base`; commit (or, after a conflict, refuses while files are unmerged or hold `<<<<<<<`/`>>>>>>>`, then `rebase --continue`) → fetch → refuses if the remote branch moved to a commit this script didn't push → pull --rebase → push `HEAD:refs/heads/<Branch>` with `--force-with-lease=<ref>:<last pushed commit>` → `glab ci status` every 30 s (≤ 45 min) → `docker compose -p <project> -f <files> down --remove-orphans` → (with `Worktree mode: none`, pull the base in the main checkout) → `Phase: SUMMARY`. The commit message is `Commit title:` (or `feat(<changed services>): <spec title>`), title only. Finished steps are recorded under `## Finish`, so a re-run resumes. | 0 · 10 conflict · 20 pipeline failed · 30 push rejected · 1 other · 2 setup |
 
 Each script counts failed runs in `Tries:`; the third failed run of the same step (or the same finish code) writes `BLOCKED`. Exit 30 blocks at once.
 
@@ -139,14 +122,13 @@ These need checking in the work environment; each has an isolated spot to adjust
 
 | Point | Where to adjust |
 |---|---|
-| `glab ci status --branch <b>` flags and output (`Pipeline state:`, `SHA:`, tab-separated `(failed)` job lines), and `glab ci trace <job> --branch <b>`. `glab ci get -b <b> -F json` may be the sturdier source. | `finish_branch.py` `parse_pipeline_state`, `failed_job_name` |
+| `glab ci status --branch <b>` flags and output (`Pipeline state:`, `SHA:`, tab-separated `(failed)` job lines), and `glab ci trace <job> --branch <b>`. `glab ci get -b <b> -F json` may be the sturdier source. | `commands/feature.md` step F |
 | `EnterWorktree` exists in the work environment's Claude Code version, and the isolation rules match the docs (code.claude.com/docs/en/worktrees). Without them the fallback above applies. | `commands/feature.md` steps S and F |
 | `$HOME` is expanded in the hook commands (they run through a shell). | `settings/hooks.json` |
 | The Playwright reviewer and the video: no frontend repo or Playwright on this machine. The agent loads Playwright from the frontend folder with `require(require.resolve('playwright', { paths: [...] }))` from a script in `docs/features/<T>/playwright/`, uses only preinstalled browsers, and mocks the API with `page.route()` or uses the branch's docker stack. `recordVideo` output naming, the dev-server start/stop and the login flow need a real run. | `agents/playwright-reviewer.md`, `commands/feature.md` step V |
 | The HTML mockups use CSS `:has()` for the theme/RTL/state switches (no JavaScript); the offline browser must support it (Chromium 105+, Firefox 121+). | `skills/html-mockups/templates/mockup.html` |
 | `.claude/rules/*.md` with a `paths:` glob, as an alternative to folder CLAUDE.md files. | `claude-md/README.md` |
 | The monorepo paths in `claude-md/`, the `## Commands` lines, and `Compose files`. | each feature's `state.md` |
-| Add `-v` to `docker compose down` only if the branch's volumes hold nothing you need. | `finish_branch.py` `stop_containers` |
 
 ## Developing
 

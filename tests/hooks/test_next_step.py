@@ -64,7 +64,7 @@ def test_next_step_finished_feature_allows(
         ("TESTS", "test-plan.md"),
         ("GATE-A", 'gate_a.py" BTRC-1234'),
         ("GATE-B", 'review_round.py" triage-check BTRC-1234 1'),
-        ("FINISH", 'finish_branch.py" BTRC-1234'),
+        ("FINISH", "glab ci status --branch"),
         ("SUMMARY", "summary.md"),
         ("NONSENSE", "has no next step"),
     ],
@@ -228,7 +228,8 @@ def test_next_step_phases_match_feature_command():
     [
         'python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>',
         'python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>',
-        'python3 "$HOME/.claude/scripts/finish_branch.py" <Ticket>',
+        "git push --force-with-lease origin HEAD:refs/heads/<Branch>",
+        "glab ci status --branch <Branch>",
         "keep `Round: 3`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
         'python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>',
         'python3 "<scripts>/review_round.py" capture <Ticket> <Round> --source <source>',
@@ -324,7 +325,7 @@ def test_next_step_finish_writes_the_titles_and_waits_for_the_pipeline(tmp_path:
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert 'finish_branch.py" BTRC-1234`' in reason
+    assert "git push --force-with-lease" in reason
     assert "`Commit title:`" in reason
     assert "` (BTRC-1234)`" in reason
     assert "the pipeline must pass" in reason

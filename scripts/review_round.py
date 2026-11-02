@@ -7,9 +7,10 @@ Usage: python3 review_round.py expected BTRC-1234 <round>
        python3 review_round.py verify-check BTRC-1234 <round> --source <source>
        python3 review_round.py triage-check BTRC-1234 <round>
 `expected` prints the reviewers this round needs: correctness, conventions, tests, spec, and playwright when the grill chose it.
-`capture` reads review/<source>-<round>.md (findings as `## <id> | <file:line> | <rule>`, ending with `Done: <k> finding(s)`),
-fails when the file is missing, has no `Done:` line, k doesn't match, or a `## ` line isn't a finding, and otherwise writes
-review/<source>-<round>.json with each flagged line's text as it is now (run it before fixing anything).
+`capture` reads review/<source>-<round>.md (findings as `## <where> | <rule>` followed by the problem, ending with
+`Done: <k> finding(s)`; reviewers write no ids), fails when the file is missing, has no `Done:` line, k doesn't match, or a
+`## ` line isn't a finding, and otherwise numbers the findings (`## K1-1 | <where> | <rule>`, written back into the file) and
+writes review/<source>-<round>.json with each flagged line's text as it is now (run it before fixing anything).
 `verify-check` reads review/verify-<source>-<round>.md (`## <id> | sure|unsure|invalid` per finding) and fails unless every
 finding of the source has exactly one verdict.
 `triage-check` fails unless every expected source is captured and verified, and every finding has a row under `## Round <round>`
@@ -46,7 +47,7 @@ PREFIX_BY_SOURCE = {
     for prefix, review_source in SOURCE_BY_ID_PREFIX.items()
 }
 FINDING_HEADER_PATTERN = re.compile(
-    r"^##\s+(?P<id>[KCTSP]\d+-\d+)\s*\|\s*(?P<location>[^|]+?)\s*\|\s*(?P<rule>[^|]+?)\s*$",
+    r"^##\s+(?:(?P<id>[KCTSP]\d+-\d+)\s*\|\s*)?(?P<location>[^|]+?)\s*\|\s*(?P<rule>[^|]+?)\s*$",
 )
 VERDICT_HEADER_PATTERN = re.compile(
     r"^##\s+(?P<id>[KCTSP]\d+-\d+)\s*\|\s*(?P<verdict>sure|unsure|invalid)\s*$",
@@ -118,7 +119,7 @@ def parse_reviewer_findings(review_text: str) -> list[ReviewerFinding]:
     """
     Read the findings of a reviewer's file.
 
-    :param review_text: review/<source>-<round>.md, findings as `## K2-1 | path:line | RULE` headers followed by their text.
+    :param review_text: review/<source>-<round>.md, after capture numbered it: `## K2-1 | path:line | RULE` headers followed by their text.
     :return: The findings in file order; `no file` / `no rule` become empty values.
     """
     findings: list[ReviewerFinding] = []
@@ -169,13 +170,14 @@ def reviewer_file_problems(review_text: str, review_source: str, round_number: i
         header_match = FINDING_HEADER_PATTERN.match(review_line)
         if header_match is None:
             problems.append(
-                f"not a finding header (`## <id> | file:line | rule`): {review_line.strip()}",
+                f"not a finding header (`## <where> | <rule>`): {review_line.strip()}",
             )
             continue
 
-        if not header_match.group("id").startswith(expected_prefix):
+        finding_id = header_match.group("id")
+        if finding_id is not None and not finding_id.startswith(expected_prefix):
             problems.append(
-                f"{header_match.group('id')} should start with {expected_prefix}",
+                f"{finding_id} should start with {expected_prefix}",
             )
         header_count += 1
 
@@ -189,6 +191,35 @@ def reviewer_file_problems(review_text: str, review_source: str, round_number: i
             f"`Done: {done_matches[-1]}` but {header_count} finding header(s) were read",
         )
     return problems
+
+
+def numbered_review(review_text: str, review_source: str, round_number: int) -> str:
+    """
+    Give every finding header its id, `<prefix><round>-<i>` in file order; headers that already have one keep it.
+
+    :param review_text: The reviewer's file, already checked.
+    :param review_source: The reviewer.
+    :param round_number: The review round.
+    :return: The file with every header as `## <id> | <where> | <rule>`.
+    """
+    prefix = f"{PREFIX_BY_SOURCE[review_source]}{round_number}-"
+    numbered_lines: list[str] = []
+    finding_number = 0
+    for review_line in review_text.splitlines():
+        header_match = FINDING_HEADER_PATTERN.match(review_line)
+        if header_match is None or review_line.strip() in ALLOWED_OTHER_HEADERS:
+            numbered_lines.append(review_line)
+            continue
+
+        finding_number += 1
+        finding_id = header_match.group("id")
+        if finding_id is None:
+            finding_id = f"{prefix}{finding_number}"
+        numbered_lines.append(
+            f"## {finding_id} | {header_match.group('location')} | {header_match.group('rule')}",
+        )
+
+    return "\n".join(numbered_lines) + "\n"
 
 
 def finding_records(state: FeatureState, findings: list[ReviewerFinding]) -> list[dict[str, object]]:
@@ -272,6 +303,12 @@ def capture_source(state: FeatureState, review_source: str, round_number: int) -
     )
     if len(problems) > 0:
         return problems, ""
+    review_text = numbered_review(
+        review_text,
+        review_source,
+        round_number,
+    )
+    review_path.write_text(review_text, encoding="utf-8")
     records = finding_records(state, parse_reviewer_findings(review_text))
     review_path.with_suffix(".json").write_text(json.dumps(records, indent=2), encoding="utf-8")
     notes = earlier_dismissal_notes(

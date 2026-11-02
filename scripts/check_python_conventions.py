@@ -10,8 +10,10 @@ Checks Python files against the house conventions that ruff and mypy cannot expr
 import argparse
 import ast
 import builtins
+import io
 import re
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +39,7 @@ FUNCTION_NODE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef)
 NESTED_SCOPE_NODE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 DOCSTRING_OWNER_NODE_TYPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 GET_PREFIX = "get_"
+MANAGER_CLASS_SUFFIXES = ("Manager", "Reader", "Creator", "Updater", "Deleter")
 BOOLEAN_NAME_PREFIXES = ("is_", "has_", "should_", "can_", "was_", "were_", "does_", "did_")
 BOOLEAN_CALL_NAMES = frozenset(
     {
@@ -574,6 +577,41 @@ def check_exception_location(path: Path, tree: ast.Module) -> list[Violation]:
     ]
 
 
+def check_comments(path: Path, source: str) -> list[Violation]:
+    """
+    Report every `#` comment except the section banners and a first-line shebang.
+
+    :param path: The file being checked.
+    :param source: Its text.
+    :return: One violation per comment.
+    """
+    violations: list[Violation] = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return []
+    for token in tokens:
+        if token.type != tokenize.COMMENT:
+            continue
+
+        line_number = token.start[0]
+        is_shebang = line_number == 1 and token.string.startswith("#!")
+        is_banner = token.start[1] == 0 and BANNER_PATTERN.match(token.string) is not None
+        if is_shebang or is_banner:
+            continue
+
+        violations.append(
+            Violation(
+                path,
+                line_number,
+                "PY-52",
+                "No comments: name a variable or extract a well-named function instead.",
+            ),
+        )
+
+    return violations
+
+
 def is_inside_f_string(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
     current = parents.get(node)
     while current is not None:
@@ -733,12 +771,26 @@ def is_framework_override(
     )
 
 
+def is_manager_method(node: ast.FunctionDef | ast.AsyncFunctionDef, parents: dict[ast.AST, ast.AST]) -> bool:
+    owner = parents.get(node)
+    return isinstance(owner, ast.ClassDef) and owner.name.endswith(MANAGER_CLASS_SUFFIXES)
+
+
 def check_get_prefix(
     path: Path,
     tree: ast.Module,
     parents: dict[ast.AST, ast.AST],
     base_function_names: frozenset[str],
 ) -> list[Violation]:
+    """
+    Report new manager methods named `get_...`; other functions may use `get_`.
+
+    :param path: The file being checked.
+    :param tree: Its syntax tree.
+    :param parents: Child-to-parent node map of the module.
+    :param base_function_names: Names the file already had in the base version.
+    :return: One violation per new `get_` method of a manager class.
+    """
     violations: list[Violation] = []
     local_class_names = frozenset(
         node.name
@@ -747,6 +799,8 @@ def check_get_prefix(
     )
     for node in ast.walk(tree):
         if not isinstance(node, FUNCTION_NODE_TYPES) or not node.name.startswith(GET_PREFIX):
+            continue
+        if not is_manager_method(node, parents):
             continue
         if node.name in base_function_names:
             continue
@@ -760,7 +814,7 @@ def check_get_prefix(
             path,
             node.lineno,
             "PY-62",
-            f"New functions never start with 'get_': name it '{node.name.removeprefix(GET_PREFIX)}'.",
+            f"Manager methods never start with 'get_': name what they return, e.g. '{node.name.removeprefix(GET_PREFIX)}', 'X_by_id', 'X_by_id_raw' or 'X_by_id_internal'.",
         )
         violations.append(violation)
     return violations
@@ -883,6 +937,7 @@ def check_python_file(path: Path, base_source: str | None = None) -> list[Violat
     line_bytes = [line.encode("utf-8") for line in lines]
     parents = build_parent_map(tree)
     violations = check_encoding(path, raw_source)
+    violations += check_comments(path, source)
     violations += check_none_returns(path, tree)
     violations += check_docstrings(
         path,

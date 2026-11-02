@@ -164,21 +164,21 @@ def test_check_python_file_syntax_error_reports_syntax_rule(write_python_file: C
     assert reported_rule_ids == ["PY-SYNTAX"]
 
 
-def test_check_python_file_get_prefix_on_function_reports_py62(write_python_file: Callable[..., Path]):
+def test_check_python_file_get_prefix_on_a_free_function_is_allowed(write_python_file: Callable[..., Path]):
     path = write_python_file(COMPLIANT_SOURCE + "\n\ndef get_entity_by_id(entity_id: int) -> int:\n    return entity_id\n")
 
     violations = check_python_file(path)
 
+    assert violations == []
+
+
+def test_check_python_file_get_prefix_on_a_reader_method_names_the_by_id_forms(write_python_file: Callable[..., Path]):
+    path = write_python_file("class EntityReader:\n    def get_entity(self):\n        return 1\n", "test_entities.py")
+
+    violations = check_python_file(path)
+
     assert [violation.rule_id for violation in violations] == ["PY-62"]
-    assert "entity_by_id" in violations[0].message
-
-
-def test_check_python_file_get_prefix_in_test_file_reports_py62(write_python_file: Callable[..., Path]):
-    path = write_python_file("def get_entity():\n    return 1\n", "test_entities.py")
-
-    reported_rule_ids = rule_ids(path)
-
-    assert reported_rule_ids == ["PY-62"]
+    assert "X_by_id_raw" in violations[0].message
 
 
 @pytest.mark.parametrize(
@@ -231,3 +231,19 @@ def test_check_python_file_exception_in_errors_file_is_fine(write_python_file: C
     )
 
     assert "PY-69" not in rule_ids(path)
+
+
+@pytest.mark.parametrize("snippet", [
+    "rows = []  # start empty\n",
+    "# load the rows\nrows = []\n",
+])
+def test_check_python_file_comment_reports_py_52(write_python_file: Callable[..., Path], snippet: str):
+    path = write_python_file(HEADER + "# ----- Imports ----- #\n\nimport os\n\n# ----- Consts ----- #\n\n" + snippet)
+
+    assert "PY-52" in rule_ids(path)
+
+
+def test_check_python_file_banners_shebang_and_hash_in_strings_are_not_comments(write_python_file: Callable[..., Path]):
+    path = write_python_file("#!/usr/bin/env python3\n" + HEADER + "# ----- Imports ----- #\n\nimport os\n\n# ----- Consts ----- #\n\nCOLOR = \"#ff0000\"\n")
+
+    assert "PY-52" not in rule_ids(path)

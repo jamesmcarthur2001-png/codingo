@@ -47,6 +47,12 @@ SUPPRESSION_PATTERN = re.compile(
     r"|@ts-ignore|@ts-nocheck|@ts-expect-error",
     re.IGNORECASE,
 )
+FRONTEND_COMMENT_PATTERN = re.compile(
+    r"^\s*(?://|/\*|\*/|<!--)"
+    r"|<!--"
+    r"|(?<=[;,)}\]])\s*//"
+    r"|(?<=[;,)}\]])\s*/\*",
+)
 PYTHON_CONFIG_NAMES = ("pyproject.toml", "setup.cfg", "ruff.toml", ".ruff.toml", "mypy.ini", ".flake8", "tox.ini", ".pylintrc")
 PYTHON_CONFIG_SUPPRESSION_PATTERN = re.compile(
     r"per-file-ignores|extend-ignore|^\s*ignore\s*=|ignore_errors\s*=\s*true|disable_error_code|^\s*disable\s*=",
@@ -250,6 +256,30 @@ def collect_suppression_problems(path: Path, line_filter: LineFilter) -> list[Pr
     return problems
 
 
+def collect_frontend_comment_problems(path: Path, line_filter: LineFilter) -> list[Problem]:
+    """
+    Find comments (`//`, `/* */`, `<!-- -->`) on the changed lines of a frontend file.
+
+    :param path: The file to read.
+    :param line_filter: The changed lines.
+    :return: One problem per changed line that holds a comment.
+    """
+    problems: list[Problem] = []
+    source_lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+    for line_number, source_line in enumerate(source_lines, start=1):
+        if not line_filter.covers(line_number) or FRONTEND_COMMENT_PATTERN.search(source_line) is None:
+            continue
+
+        problems.append(
+            Problem(
+                line_number,
+                f"{path}:{line_number}: VU-40 No comments: name a variable, computed or function instead.",
+            ),
+        )
+
+    return problems
+
+
 def keep_changed(problems: Iterable[Problem], line_filter: LineFilter) -> list[Problem]:
     return [
         problem
@@ -272,6 +302,12 @@ def changed_line_problems(path: Path, line_filter: LineFilter, base_source: str 
         problems = collect_python_problems(path, base_source)
     elif path.suffix in FRONTEND_SUFFIXES:
         problems = collect_frontend_problems(path)
+        problems.extend(
+            collect_frontend_comment_problems(
+                path,
+                line_filter,
+            ),
+        )
 
     problems.extend(collect_suppression_problems(path, line_filter))
     return keep_changed(problems, line_filter)

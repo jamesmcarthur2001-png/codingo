@@ -11,10 +11,10 @@ from feature_state import FeatureState
 
 CONVENTIONS_REVIEW = """# Conventions review, round 1
 
-## C1-1 | app/entities.py:3 | PY-23
+## app/entities.py:3 | PY-23
 `if not rows:` on a list. Use `if len(rows) == 0:`.
 
-## C1-2 | no file | no rule
+## no file | no rule
 Something general.
 
 Done: 2 finding(s)
@@ -96,7 +96,7 @@ def complete_round_one(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_parse_reviewer_findings_reads_headers_and_text():
-    findings = review_round.parse_reviewer_findings(CONVENTIONS_REVIEW)
+    findings = review_round.parse_reviewer_findings(review_round.numbered_review(CONVENTIONS_REVIEW, "conventions", 1))
 
     assert [(finding.finding_id, finding.file, finding.line, finding.rule) for finding in findings] == [
         ("C1-1", "app/entities.py", 3, "PY-23"),
@@ -126,11 +126,31 @@ def test_capture_stores_the_flagged_line_text(review_feature: Path, monkeypatch:
     assert records[0]["line_text"] == "if not rows:"
 
 
+def test_capture_numbers_the_findings_in_the_reviewer_file(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+
+    numbered = (review_feature / "review" / "conventions-1.md").read_text(encoding="utf-8")
+    assert "## C1-1 | app/entities.py:3 | PY-23" in numbered
+    assert "## C1-2 | no file | no rule" in numbered
+
+
+def test_capture_again_keeps_the_numbers_it_gave(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+    first = (review_feature / "review" / "conventions-1.md").read_text(encoding="utf-8")
+
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+
+    assert (review_feature / "review" / "conventions-1.md").read_text(encoding="utf-8") == first
+
+
 @pytest.mark.parametrize("review_text,expected_problem", [
     (CONVENTIONS_REVIEW.replace("Done: 2 finding(s)\n", ""), "no `Done:"),
     (CONVENTIONS_REVIEW.replace("Done: 2", "Done: 3"), "`Done: 3` but 2"),
-    (CONVENTIONS_REVIEW.replace("## C1-2 | no file | no rule", "## C1-2 no file"), "not a finding header"),
-    (CONVENTIONS_REVIEW.replace("C1-2", "K1-2"), "should start with C1-"),
+    (CONVENTIONS_REVIEW.replace("## no file | no rule", "## no file"), "not a finding header"),
+    (CONVENTIONS_REVIEW.replace("## no file | no rule", "## K1-2 | no file | no rule"), "should start with C1-"),
 ])
 def test_capture_refuses_an_incomplete_reviewer_file(
     review_feature: Path,
@@ -236,7 +256,7 @@ def test_dismissed_rows_feed_the_dismissed_memory_per_source(review_feature: Pat
 def test_capture_notes_findings_dismissed_in_an_earlier_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
     complete_round_one(review_feature, monkeypatch)
     write_review(review_feature, "triage.md", SOURCED_TRIAGE)
-    write_review(review_feature, "conventions-2.md", CONVENTIONS_REVIEW.replace("C1-", "C2-").replace("round 1", "round 2"))
+    write_review(review_feature, "conventions-2.md", CONVENTIONS_REVIEW.replace("round 1", "round 2"))
 
     run_main(monkeypatch, "capture", "BTRC-1234", "2", "--source", "conventions")
 

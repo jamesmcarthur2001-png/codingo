@@ -57,7 +57,7 @@ Go through every item and mark it covered or N/A. Group related items into one r
 - [ ] Backward compatibility: existing clients, existing data, other services' consumers
 - [ ] Tests: anything special beyond the defaults. Which **user journeys** deserve a browser test (Playwright, mocked backend)? Recommend one happy path per new journey plus its main failure.
 - [ ] Missing tooling from `context.md`: add it as part of this feature, or skip that check?
-- [ ] Git: anything beyond the defaults (one branch per BTRC-n, finished by `finish_branch.py`)
+- [ ] Git: anything beyond the defaults (one branch per BTRC-n, finished in `/feature` step F)
 
 ## Frontend scope
 Only when state.md's `## Frontend` says `- Touches frontend: yes` (also when the backend is touched too), and then **always**: every frontend feature gets all three questions below in the **first** batch, asked with `AskUserQuestion`, each with a recommendation. **Ask them; never fill in an answer the user didn't give**, not even the recommended one. Open with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
@@ -68,7 +68,7 @@ Only when state.md's `## Frontend` says `- Touches frontend: yes` (also when the
 | `Video` | "Do you want a Playwright video of the feature at the end?" | Yes |
 | `HTML preview` | "I'll show you how the changed parts will look, with a few design options to choose from, before I write the spec. OK?" Ask it for **every** frontend change, also small ones (a new column, button, field or message). | Yes. Write `- HTML preview: no` only when the user says they don't want it |
 
-If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the `service-map` skill and the frontend's `package.json`, and recommend one:
+If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the frontend's `package.json` and the `CLAUDE.md` files, and recommend one:
 - `Dev server`: the command and its folder, e.g. `npm run dev` in `frontend/`.
 - `App URL`: e.g. `http://localhost:5173`.
 - `Backend`: `mocked` (Playwright `page.route()` mocks, as in `browser-test-conventions`; recommended, it needs nothing running) or `docker` (the branch's local stack, `docker compose -p <Compose project>`).

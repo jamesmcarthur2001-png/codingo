@@ -1,6 +1,6 @@
 # Workflow proposal: the monorepo on Qwen 3.8 27B
 
-Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that replaces Beatrice: 5 reviewers, a verifier each, 3 rounds; §2.5 below describes the old Beatrice design)
+Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that replaces Beatrice: 5 reviewers, a verifier each, 3 rounds; the orchestrator finishes the branch itself (no finish script); no install script or /map-services. Sections below that mention `run_beatrice.py`, `finish_branch.py` or `install.sh` describe the old design)
 
 ## 0. Decisions so far
 
@@ -8,7 +8,7 @@ Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that repla
 |---|---|---|
 | 1 | Dates | `DD/MM/YYYY`, full years. **Done**: python-conventions (both copies) and `check_python_conventions.py` now require it, with a test for a 2-digit year. |
 | 2 | String constants | Frontend only: strings of 7+ words (over 6) become constants. Backend strings stay inline. Critical keys (storage, header, cache, queue/routing, event and permission keys) are constants in both. |
-| 3 | `get_` prefix | New functions never start with `get_` (`entity_by_id`). Existing names (`get_session`, `get_and_inc`) stay as they are. |
+| 3 | `get_` prefix | Manager methods that fetch something never start with `get_` (`entity_by_id`, `entity_by_id_raw`, `entity_by_id_internal`). Elsewhere `get_` is fine. |
 | 4 | Suppressions | None allowed: no `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`. A script fails on any new one. |
 | 5 | Tests source | `services/evermore/tests/CLAUDE.md` defines evermore's test model. The general pytest skill drops its `db_session` and factory examples. |
 | 6 | Force push | `--force-with-lease=<branch>:<last commit the script pushed>`: it refuses if someone else pushed to the branch since then (a plain `--force-with-lease` after `git fetch` would protect nothing). |
@@ -16,7 +16,7 @@ Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that repla
 | 8 | Subagents | For exploration (3 in parallel, each exploring the whole scope) and, since v9, the review round: 5 reviewers and a verifier per reviewer, up to 5 at once (decision 14). The orchestrator plans, implements, writes tests and fixes by itself. |
 | 9 | Test plan | Exactly four columns: test name, what it checks, expected result, file. |
 | 10 | Beatrice | Replaced in v9 by the in-workflow review round (decision 14). Older features' Beatrice rows (R ids) are still read. |
-| 11 | Install | Ubuntu, user level: `install.sh` copies commands, agents and skills into `~/.claude/`, the scripts into `~/.claude/scripts/`, and merges the hooks into `~/.claude/settings.json`. Not a plugin, not Windows. |
+| 11 | Install | Ubuntu, user level: commands, agents, skills and scripts are copied by hand plainly under `~/.claude/` (scripts in `~/.claude/scripts/`), and the hooks from `settings/hooks.json` go into `~/.claude/settings.json`. No install script since v9. |
 | 12 | Worktrees | Native git worktrees at `.claude/worktrees/<full branch name>`, made by `worktree.py create` (fetch the base, `git worktree add -b <branch> … origin/<base>`, or reuse the existing branch; never a second BTRC branch) and removed with the same logic. After creating it, the orchestrator calls Claude Code's `EnterWorktree`; each worktree keeps its own feature folder (`<worktree>/docs/features/<ticket>/`, written there from the start; nothing goes into the main checkout's `docs/`), and finishing runs inside the worktree; after the summary the orchestrator calls `ExitWorktree` and `worktree.py remove <T> --done`, which copies the feature folder to the main checkout's `docs/features/<T>/` and removes the worktree (the branch stays). `.worktreeinclude` files are copied in. `/feature … --no-worktree` works in the main checkout instead (switched to the branch; `Worktree:` empty, `Worktree mode: none`). |
 | 13 | Frontend scope | When exploration shows the frontend is touched, the first grill batch always suggests a Playwright reviewer, a video and an HTML preview with design options (recommended yes, off only when the user says no), and, if the reviewer or the video is yes, how to run the app. Answers go to `## Frontend` in state.md. Test credentials come only from seed/fixture files or the user. |
 | 14 | Review round | Since v9: in one message, 5 reviewers (correctness K, conventions C, tests T, spec S, playwright P when chosen), each with a "you do NOT judge" list, each file ending `Done: k finding(s)`. As each finishes, `review_round.py capture` checks it and a `finding-verifier` gives every finding `sure`, `unsure` or `invalid`. triage.md: sure → fix, invalid → dismiss, unsure → the orchestrator decides; `triage-check` enforces it. Up to 3 rounds. |
@@ -25,8 +25,8 @@ Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that repla
 | 17 | Commits and MRs | Title only, no description. Commit: `<type>(<service>): <what was done>` (`feat(sunrise): …`), no ticket. MR: the same + ` (BTRC-<n>)`; several tickets joined with ` & `, each part with its own `(BTRC-<n>)`. |
 | 18 | Review triage | Every finding of every source is mapped in triage.md first; `review_round.py triage-check` must pass before any fix. |
 | 19 | Test database | Tests never run on the user's own database; `Test database:` in state.md records which one they use. |
-| 20 | Backend layout | `database/create` and `database/update` hold managers only (helpers in `utils.py`); exception classes live only in errors files and are general (`NotFoundError`, not `NotFoundError`). Docstrings say generally what a function does, compactly. |
-| 21 | Page size | Realistic: what one page shows (usually 10–25), never 100 "just in case". |
+| 20 | Backend layout | evermore: `database/create` and `database/update` main modules hold managers only (helpers in `utils.py`); exception classes live only in errors files and are general (`NotFoundError`, not `NotFoundError`). Docstrings say generally what a function does, compactly. |
+| 21 | Page size | Frontend only: request what one page shows (usually 10–25). |
 
 Problems this targets:
 

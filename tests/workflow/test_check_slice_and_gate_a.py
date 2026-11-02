@@ -96,7 +96,7 @@ def test_check_slice_violation_on_changed_line_fails(
 
     output = capsys.readouterr().out
     assert exit_code == 1
-    assert "PY-62" in output
+    assert "PY-01" in output
     assert "SUPPRESSION" in output
     assert "PY-02" not in output
 

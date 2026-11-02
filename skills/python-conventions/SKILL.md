@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, managers-only database/create and database/update folders, realistic page sizes, .env configuration, string constants (critical keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
+description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, .env configuration, string constants (critical keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
 ---
 
 # Python Backend Conventions
@@ -181,7 +181,7 @@ DOCSTRING EXPLANATION
 - **Classes & `__init__`**: Classes get a standard description with opening `"""` on line 1, description on line 2, and closing `"""` on line 3 (no `:param:` or `:return:`). `__init__` methods do **NOT** get a docstring.
 - **No blank line after a class docstring**: the class body (`__init__`, attributes, `__tablename__`, anything) starts on the line right after the closing `"""`.
 - **Indicative Naming**: Never use vague or generic names like `load` or `process`. Use explicit names that explain what is being handled (e.g., `load_customer_billing_history`, `process_credit_card_charge`).
-- **No `get_` prefix on new functions**: name what is returned: `entity_by_id`, not `get_entity_by_id`. Existing names (`get_session`, `get_and_inc`) stay as they are; call them, don't rename them.
+- **No `get_` on manager methods that fetch something**: a method of a manager (reader, creator, updater) that reads and returns rows is named for what it returns: `entity_by_id`, or `entity_by_id_raw` (the row as stored) / `entity_by_id_internal` (for use inside the service only) when that's the case. Never `get_entity_by_id`. Elsewhere `get_` is fine (e.g. `get_session`, `get_and_inc`, a helper or dependency).
 - **No short or abbreviated names**: no single-letter names and no abbreviations (`q`, `db`, `e`, `ex`, `err`, `idx`, `tmp`, `cfg`, `val`, `obj`, `res`, `req`, `resp`, `msg`, ...) for variables, parameters, loop and comprehension variables, or `except ... as` names. Write the full word: `query`, `session`, `error`, `index`. When an external name must stay short (e.g. a `?q=` query parameter), keep the full Python name and map it: `query: Annotated[str | None, Query(alias="q")] = None`.
 
 ---
@@ -481,11 +481,10 @@ site_names = [site.name for site in sites if not site.archived]
 ## 11. FastAPI Endpoints and Dependencies
 
 - **Every endpoint has a docstring** with only a short description (see §4).
-- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Those existing names keep their `get_`; a new dependency doesn't start with `get_` (e.g. `current_site`).
+- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Dependencies may start with `get_`.
 - **New routers use `prefix=`, not `tags=`**: `router = APIRouter(prefix="/sites")`.
 - **Never store a dependency in a constant or a type alias** (no `SessionDependency = Annotated[Session, Depends(get_session)]` and no `session_dependency = Depends(get_session)`). Spelling the dependency in each endpoint keeps every endpoint readable on its own.
 - Query and path parameters use full names (§4); use `alias=` when the URL needs a short name.
-- **Realistic page sizes**: a list endpoint's default page size is what one page of the screen actually shows (usually 10–25), and its maximum stays close to it. Never default to 100 (or more) "just in case"; load more pages when needed.
 
 ```python
 # GOOD:
@@ -570,7 +569,6 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 - shared models library rules: its `libs/<models library>/CLAUDE.md`
 - evermore rules: `services/evermore/CLAUDE.md`
 - Sessions, transactions, indexes: `sql-conventions`
-- `database/create/` and `database/update/` (and similar `database/<action>/` folders): try to keep **only manager classes** there (one creator or updater manager per file). Helper functions, builders and conversions go to `utils.py` or the folder's other utils module, never as loose functions next to a manager.
 - Exception classes: only in errors files (§12).
 
 ---

@@ -10,7 +10,7 @@ Format rules (scripts/scope_check.py parses this file):
 - A changed file not listed in any slice up to the current one fails check_slice.py.
 - Tests are not listed here: test files come from the File column of test-plan.md.
 - Order slices by dependency: model/migration → manager/reader → API route → proxy route → frontend types/client → components/views.
-- One migration for the whole feature, in the first slice; later slices update it, never add another.
+- One migration for the branch, in the first slice; later slices update it, never add another.
 -->
 
 ## Slice 1: <name, e.g. "evermore model + reader">
@@ -35,4 +35,4 @@ Verify: `<command>`
 
 ## Git
 - Branch: <Branch from state.md> · Base: <Base from state.md>
-- No commits during the build. `finish_branch.py` makes one commit `<ticket>: <spec title>`, rebases on the base, pushes with `--force-with-lease`, waits for the pipeline.
+- No commits during the build. Step F makes one commit `<type>(<service>): <what was done>`, rebases on the base, pushes with `--force-with-lease`, waits for the pipeline to pass.

@@ -6,7 +6,7 @@ import pytest
 
 import command_runner
 from git_changes import LineFilter
-from line_checks import Problem, collect_suppression_problems, keep_changed, parse_eslint_output
+from line_checks import Problem, collect_frontend_comment_problems, collect_suppression_problems, keep_changed, parse_eslint_output
 from mypy_strict import filter_mypy_output
 
 IS_WINDOWS = sys.platform == "win32"
@@ -120,3 +120,39 @@ def test_filter_mypy_output_resolves_relative_paths_against_the_project(tmp_path
     kept = filter_mypy_output(output_lines, project)
 
     assert kept == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "// load the entities",
+        "  /* old code */",
+        "<!-- the header -->",
+        "const total = 3; // sum",
+        "loadPage(); /* later */",
+    ],
+)
+def test_collect_frontend_comment_problems_finds_a_comment(tmp_path: Path, line: str):
+    path = tmp_path / "view.vue"
+    path.write_text(line + "\n", encoding="utf-8")
+
+    problems = collect_frontend_comment_problems(path, LineFilter(whole_file=True))
+
+    assert len(problems) == 1
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "const apiUrl = 'http://localhost:5173'",
+        "const pattern = /a\\/b/",
+        "<div class=\"w-full\" />",
+    ],
+)
+def test_collect_frontend_comment_problems_ignores_code_that_only_looks_like_one(tmp_path: Path, line: str):
+    path = tmp_path / "view.ts"
+    path.write_text(line + "\n", encoding="utf-8")
+
+    problems = collect_frontend_comment_problems(path, LineFilter(whole_file=True))
+
+    assert problems == []

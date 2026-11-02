@@ -57,7 +57,8 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   the git steps, and after the spec is approved it asks no questions.
 
 ## Python, every service
-- New functions never start with `get_` (`entity_by_id`, not `get_entity_by_id`). Existing names stay.
+- Manager methods that fetch something never start with `get_`: `entity_by_id`, `entity_by_id_raw` or
+  `entity_by_id_internal`, not `get_entity_by_id`. `get_` elsewhere is fine.
 - Full years in dates: 2026, not 26.
 - Keep docstrings short: one sentence on what the function or class is for, not how it works.
   Don't narrate its steps, branches or edge cases; the code already says that. `:param:`/`:return:` lines are a few words each.
@@ -65,9 +66,8 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   (models, fields, queries) never become shared helpers, base models, mixins or factories. A little duplicated code
   is fine: each function and each model stays readable on its own.
 - Never generate a model's fields with a function; write each field in the model.
-- One migration per feature: when the schema changes again, update the branch's migration, never add a second.
+- One migration per branch: when the schema changes again, update the branch's migration, never add a second.
 - String constants: none by length in the backend; only critical keys (see below) are constants.
-- Page sizes are what one page really shows (usually 10–25), never 100 "just in case".
 - No `# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore` or `# pragma: no cover`. Fix the code.
 
 ## Comments

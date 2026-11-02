@@ -39,15 +39,15 @@ You check that the new frontend behaviour works in the browser, as the spec says
 # Playwright review, round <n>
 App: <URL> · backend: <mocked|docker> · screenshots: playwright/screenshots/round-<n>/
 
-## P<n>-1 | frontend/src/views/entities/EntityExport.vue:24 | REQ-3
+## Entities list, empty state | REQ-3
 Clicking "Export" with no entities shows a spinner forever; REQ-3 says an empty file with a message. Screenshot: export-empty.png.
 
-## P<n>-2 | no file | VU-52
-The export dialog's title is unreadable in the dark theme. Screenshot: export-dialog-dark.png.
+## Export dialog, dark theme | VU-52
+The dialog's title is unreadable in the dark theme. Screenshot: export-dialog-dark.png.
 
 Done: 2 finding(s)
 ```
-- One `## ` header per finding: `P<round>-<i>`, ` | `, the repo-relative `path:line` of the code most likely responsible (or `no file`), ` | `, the REQ/EC id or the rule ID (`VU-…`, `BR-…`), or `no rule`. Then one or two sentences and the screenshot name.
-- Console errors are findings too (rule `no rule`, the message in the text).
-- No other `## ` headers. No `|` inside the finding text. When everything passes, write the title, the App line and the list of checks you ran.
+- One `## ` header per finding: `<where in the app: view, dialog or step> | <REQ/EC id, rule ID, or no rule>`. **Never name a code file or line**: you report what is wrong in the app, not which code causes it. Then one or two sentences and the screenshot name. Don't number findings; `capture` does.
+- Console errors are findings too (where = the view, rule `no rule`, the message in the text).
+- No other `## ` headers. No `|` in the header except the one separator. When everything passes, write the title, the App line and the list of checks you ran.
 - The file **always** ends with `Done: <k> finding(s)` (`Done: 0 finding(s)` when everything passes).

@@ -11,9 +11,9 @@ General Python style is in `python-conventions`; evermore's folder rules are in 
 
 **Most important: no reuse of session calls, `try` / `except` blocks or ORM objects.** `add`, `commit`, `flush`, `refresh`, `delete`, the commit `try` block, models, fields and queries are written out in each function and each model, never moved into a shared helper, base model, mixin or factory. A little duplication is fine: it keeps each function readable on its own (see `python-conventions` §16).
 
-**One migration per feature**: a branch that changes the schema has exactly one Alembic migration. When the schema changes again during the work, update that migration (or regenerate it); never add a second one.
+**One migration per branch**: a branch that changes the schema has exactly one Alembic migration. When the schema changes again during the work, update that migration (or regenerate it); never add a second one.
 
-**Folders**: `database/create/` and `database/update/` hold manager classes only (one creator or updater per file); helpers go to `utils.py` or another utils module. Errors come from the errors file and are general (`NotFoundError`), see `python-conventions` §12. Reads that return lists use a realistic page size (what one page shows, usually 10–25).
+Errors come from the errors file and are general (`NotFoundError`), see `python-conventions` §12. Folder rules for evermore (e.g. `database/create/` and `database/update/`) are in `services/evermore/CLAUDE.md`.
 
 ---
 

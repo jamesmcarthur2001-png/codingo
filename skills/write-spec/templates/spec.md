@@ -47,7 +47,7 @@ Status: DRAFT | APPROVED (<date>)
 
 ## 11. Git
 - Branch: <Branch from state.md> · Base: <Base from state.md>
-- Finish: `finish_branch.py` (one commit titled from the `# Spec: <feature name>` heading above, rebase, push, pipeline, containers down, worktree removed)
+- Finish: `/feature` step F (one commit `<type>(<service>): <what was done>`, rebase, push, pipeline passes, containers down, worktree removed)
 
 ## 12. Open questions
 <must be empty before approval>

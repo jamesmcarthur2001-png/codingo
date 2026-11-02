@@ -48,12 +48,21 @@ def test_check_python_file_get_method_with_override_decorator_is_allowed(write_p
     assert reported_rule_ids == []
 
 
-def test_check_python_file_new_get_method_of_local_class_reports_py62(write_python_file: Callable[..., Path]):
-    path = write_python_file("class Store:\n    def get_entity(self):\n        return 1\n", "test_store.py")
+@pytest.mark.parametrize("class_name", ["EntityManager", "EntityReader", "EntityCreator", "EntityUpdater"])
+def test_check_python_file_new_get_method_of_a_manager_reports_py62(write_python_file: Callable[..., Path], class_name: str):
+    path = write_python_file(f"class {class_name}:\n    def get_entity(self):\n        return 1\n", "test_store.py")
 
     reported_rule_ids = rule_ids(path)
 
     assert reported_rule_ids == ["PY-62"]
+
+
+def test_check_python_file_get_method_of_a_non_manager_class_is_allowed(write_python_file: Callable[..., Path]):
+    path = write_python_file("class Store:\n    def get_entity(self):\n        return 1\n", "test_store.py")
+
+    reported_rule_ids = rule_ids(path)
+
+    assert reported_rule_ids == []
 
 
 @pytest.mark.parametrize(

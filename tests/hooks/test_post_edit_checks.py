@@ -99,7 +99,7 @@ def test_post_edit_checks_violation_on_changed_line_blocks_with_only_that_line(f
     completed = run_hook("post_edit_checks.py", edit_payload(feature_repository, path))
 
     assert completed.returncode == 2
-    assert "PY-62" in completed.stderr
+    assert "PY-01" in completed.stderr
     assert "PY-01" in completed.stderr
     assert "PY-02" not in completed.stderr
 
@@ -146,7 +146,7 @@ def test_post_edit_checks_path_with_space_checks_changed_lines(feature_repositor
     completed = run_hook("post_edit_checks.py", edit_payload(feature_repository, path))
 
     assert completed.returncode == 2
-    assert "PY-62" in completed.stderr
+    assert "PY-01" in completed.stderr
     assert "PY-02" not in completed.stderr
 
 

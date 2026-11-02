@@ -24,11 +24,11 @@ Produce `spec.md` and `plan.md` in `docs/features/<ticket>/` from the templates 
 - **2–4 slices**, each a `## Slice <n>: <name>` header with no other headers inside it.
 - Each slice starts with `Files:` and one `` - `path` `` bullet per file it may touch (repo-relative; a folder ending in `/` or a glob is allowed, where `*` stays inside one folder and `**` crosses folders). `check_slice.py` fails on any changed file not listed in slices 1..n.
 - Order slices by dependency: model/migration, then service manager/reader, then API route, then proxy route, then frontend types and client, then components/views. Async pieces (RabbitMQ, Temporal) come right after the code they depend on.
-- One migration for the whole feature, in the first slice; later slices update it, never add another.
+- One migration for the branch, in the first slice; later slices update it, never add another.
 - Every slice lists: covered `REQ` IDs, **the pattern it follows (`P-n` plus a reference file)**, its tasks, and a verify command from the service map.
 - A slice that follows no existing pattern says `Pattern: NEW, because <reason>`, so the user sees it at the gate.
 - Tests aren't in the plan. They're planned later in `test-plan.md`, whose File column is also allowed scope. Test helpers that aren't test files (conftest, environment builders, factories, MSW handlers) go in the last slice's `Files:`.
-- No per-task commits: `finish_branch.py` commits once at the end.
+- No per-task commits: one commit at the end (`/feature` step F).
 
 ## Self-check before presenting
 Go through this list and fix anything that fails:

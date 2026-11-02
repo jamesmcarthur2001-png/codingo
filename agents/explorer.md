@@ -18,7 +18,7 @@ Write exactly ONE file: `<feature directory>/explore/explorer-<n>.md`.
 - Never change any other file. Never run commands that change files, branches or containers.
 
 ## Steps
-1. Read the root `CLAUDE.md`, the `CLAUDE.md` of every service you look at, and `.claude/skills/service-map/SKILL.md` if they exist.
+1. Read the root `CLAUDE.md`, the `CLAUDE.md` of every service you look at, if they exist.
 2. Cover the whole feature, not one part. Decide which services it touches. For each one, find the files that will likely change and the closest existing feature that does something similar.
 3. **Patterns.** For every kind of change the feature needs, find 1–2 existing examples and read them fully. Kinds of change:
    new endpoint (router + schemas) · SQLModel model + migration · service manager/reader · Mongo collection access · reverse-proxy route · service-to-service call · RabbitMQ publisher/consumer · Temporal workflow/activity · Vue view/component/dialog · store · API client call (`requests/`) · TS model types (`src/models/`) · backend tests (and the service's `tests/CLAUDE.md`) · frontend component/integration test · browser test · test data / environment builders · MSW handler.

@@ -209,7 +209,7 @@ The same applies to self-closing components: each attribute on its own line, and
 - **Independent loads together**: loads that don't depend on each other run in one `await Promise.all([...])`, not one `await` after another.
 - **Debounced Loading**: Always debounce search and filter-driven loading functions. All debounce timeout values must be declared as named constants (e.g. `const SEARCH_DEBOUNCE_MS = 300`).
 - **Long lists**: use the infinite list / generic loadable resources (built on `v-infinite-scroll`) for paginated lists, feeds, and lazy-loaded datasets.
-- **Realistic page sizes**: request what one page (or one scroll step) actually shows, usually 10–25 items. Never ask for 100 "just in case"; load the next page when the user gets there.
+- **Realistic page sizes**: request what one page (or one scroll step) actually shows, usually 10–25 items; load the next page when the user gets there.
 - **Error Handling**: user-facing errors are shown through `showGlobalSnackbar`; network/API errors go through `handleNetworkError`. Never `console.log` (or any `console.*`) in committed code.
 
 ### Alignment & Typography

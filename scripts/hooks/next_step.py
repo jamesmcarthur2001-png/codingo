@@ -58,13 +58,13 @@ STEP_TEMPLATES = {
         "and continue; never write BLOCKED for this. Then set `Phase: FINISH`."
     ),
     "FINISH": (
-        "Write `Commit title:` in state.md (`<type>(<service>): <what was done>`, e.g. `feat(evermore): add CSV export`; no ticket, no body) "
-        "and `MR title:` (the commit title + ` ({ticket})`). "
-        "In the code root: run `python3 \"{scripts}/finish_branch.py\" {ticket}` in the background (commit, pull --rebase, force-push with a lease, "
-        "wait for the glab pipeline to pass, containers down) and act on its exit code: "
-        "0 done, it set `Phase: SUMMARY`; 10 resolve the conflict, git add, run the tests, run it again; "
-        "20 the pipeline failed: fix it, run the tests, run it again (the pipeline must pass); 30 push rejected, you are blocked; "
-        "1 or 2 fix the cause from the message, run it again."
+        "Do the finish yourself in the code root, recording each done step under `## Finish` in state.md: "
+        "write `Commit title:` (`<type>(<service>): <what was done>`, no ticket, no body) and `MR title:` (the commit title + ` ({ticket})`); "
+        "check you're on the feature branch; `git add -A` and `git commit -m \"<Commit title>\"`; `git pull --rebase origin <Base>` "
+        "(resolve conflicts, run the tests, `rebase --continue`); `git push --force-with-lease origin HEAD:refs/heads/<Branch>` "
+        "(rejected: someone else pushed, write BLOCKED); poll `glab ci status --branch <Branch>` until it passes "
+        "(failed: fix, test, commit, rebase, push again; the pipeline must pass); "
+        "`docker compose -p <Compose project> down --remove-orphans`; then set `Phase: SUMMARY`."
     ),
     "SUMMARY": (
         "Write docs/features/{ticket}/summary.md in the code root (what was built, every review finding of every source and what happened to it, "
