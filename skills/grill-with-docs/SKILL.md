@@ -60,12 +60,12 @@ Go through every item and mark it covered or N/A. Group related items into one r
 - [ ] Git: anything beyond the defaults (one branch per BTRC-n, finished by `finish_branch.py`)
 
 ## Frontend scope
-Only when state.md's `## Frontend` says `- Touches frontend: yes`, and then **always**: every frontend feature gets all three questions below in the **first** batch, each with a recommendation, opening with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
+Only when state.md's `## Frontend` says `- Touches frontend: yes` (also when the backend is touched too), and then **always**: every frontend feature gets all three questions below in the **first** batch, asked with `AskUserQuestion`, each with a recommendation. **Ask them; never fill in an answer the user didn't give**, not even the recommended one. Open with the user's words when one of their requirements is about the UI. Write every answer under `## Frontend` in state.md as `- Name: value`.
 
 | Option | Question | Recommendation |
 |---|---|---|
-| `Playwright reviewer` | "Send a frontend reviewer that opens the app in a browser and checks the new behaviour?" | Yes |
-| `Video` | "Record a Playwright video of the feature at the end?" | Yes. Write `- Video: no` only when the user says they don't want one |
+| `Playwright reviewer` | "Should I send the Playwright reviewer in each review round, to open the app in a browser and check the new behaviour?" | Yes |
+| `Video` | "Do you want a Playwright video of the feature at the end?" | Yes |
 | `HTML preview` | "I'll show you how the changed parts will look, with a few design options to choose from, before I write the spec. OK?" Ask it for **every** frontend change, also small ones (a new column, button, field or message). | Yes. Write `- HTML preview: no` only when the user says they don't want it |
 
 If `Playwright reviewer` or `Video` is yes, ask in the next batch how to run the app. Offer options read from the `service-map` skill and the frontend's `package.json`, and recommend one:
