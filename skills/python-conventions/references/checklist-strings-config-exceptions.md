@@ -4,7 +4,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 
 ## Strings & configuration
 - [ ] PY-34 Critical keys (storage/cache keys, header names, queue and routing keys, event names, permission names) are named constants, defined once
-- [ ] PY-55 No other string is a constant: messages, SQL, templates and settings stay inline whatever their length (the more-than-6-words rule is frontend only). Strings in tests stay inline.
+- [ ] PY-55 No other string is a constant: messages, SQL, templates and settings stay inline whatever their length (the used-in-more-than-one-place rule is frontend only). Strings in tests stay inline.
 - [ ] PY-33 (auto for URL and localhost literals) URLs, hosts, ports, DB names, credentials, and keys come from `.env` via settings (never hardcoded)
 
 ## Classes & models

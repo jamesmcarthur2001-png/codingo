@@ -76,7 +76,7 @@ variable name, or move the step into a function whose name says what it does.
 
 ## Frontend
 - No `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the code.
-- Strings of more than 6 words become constants; shorter strings stay inline.
+- A string becomes a constant only when it's used in more than one place; otherwise it stays inline.
 
 ## Critical keys, everywhere
 Keys that must match in several places (storage and cache keys, header names, queue and routing keys, event names,

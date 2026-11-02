@@ -449,7 +449,7 @@ class SiteInput(BaseModel):
 
 ## 9. String Constants
 
-- **No string constants by length in the backend.** Messages, SQL, templates and other text stay inline where they're used, whatever their length. (The frontend does make strings of more than 6 words constants, see `vue-conventions` §7.)
+- **No string constants by length in the backend.** Messages, SQL, templates and other text stay inline where they're used, whatever their length. (The frontend makes a string a constant when it's used in more than one place, see `vue-conventions` §7.)
 - **Critical keys are constants**, in the backend and in the frontend: strings that must match exactly in several places or across services, such as storage and cache keys, header names, queue names and routing keys, event names, and permission or role names. Define each one once, in the `Consts` section of the module that owns it (or a shared consts module when several services use it).
 - **Settings stay inline**: settings keys and values are read in place.
 - **Strings in tests are never constants.**
