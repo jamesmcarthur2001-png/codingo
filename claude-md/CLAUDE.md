@@ -36,9 +36,9 @@ New code follows the conventions skills, not the nearby code.
 ## Questions
 Before asking about a requirement, quote the user's words for it verbatim, then ask.
 
-## Code review (beatrice-code-review)
-Map every problem first: list each comment (file:line, what's wrong, fix or dismiss with a reason) before changing anything.
-Then fix them all, and run the checks once at the end.
+## Code review
+Map every problem first: list each finding (file:line, what's wrong, fix or dismiss with a reason) before changing anything.
+A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. Then fix them all, and run the checks once at the end.
 
 ## Git
 - The base branch is master, unless the user names another one.

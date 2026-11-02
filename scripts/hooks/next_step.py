@@ -25,7 +25,7 @@ from feature_state import AFTER_APPROVAL_PHASES, FeatureState, PLAYWRIGHT_REVIEW
 
 BLOCK_COUNTER_NAME = ".stop-hook.json"
 MAX_BLOCKS_WITHOUT_PROGRESS = 8
-MAX_BEATRICE_ROUNDS = 5
+MAX_REVIEW_ROUNDS = 3
 SCRIPTS_PATH = "$HOME/.claude/scripts"
 STEP_TEMPLATES = {
     "BUILD": (
@@ -41,13 +41,14 @@ STEP_TEMPLATES = {
         "or `Phase: {after_review}` once round {max_rounds} is triaged."
     ),
     "GATE-B": (
-        "Round {round} of {max_rounds}. If review/triage.md already has `## Round {round}`, go straight to the decision below. "
-        "Else start the round's reviews in one message: `python3 \"{scripts}/run_beatrice.py\" {ticket} {round}` in the background "
-        "(skip it if review/beatrice-{round}.md exists), the `conventions-reviewer` agent (writes review/conventions-{round}.md){playwright}. "
-        "When all are done, run `python3 \"{scripts}/review_round.py\" capture {ticket} {round}` before fixing anything. "
-        "Map every problem first: triage every finding of every source into review/triage.md under `## Round {round}` (Source column: beatrice, conventions, playwright; "
-        "`fix`, or `dismiss` with a reason), and run `python3 \"{scripts}/review_round.py\" triage-check {ticket} {round}` until it passes. "
-        "Only then fix every `fix` row. "
+        "Round {round} of {max_rounds}. If `python3 \"{scripts}/review_round.py\" triage-check {ticket} {round}` passes, go straight to the decision below. "
+        "Else, in one message, start every reviewer whose review/<source>-{round}.md is missing or has no `Done:` line: "
+        "`correctness-reviewer`, `conventions-reviewer`, `tests-reviewer`, `spec-reviewer`{playwright}. "
+        "As each one finishes, run `python3 \"{scripts}/review_round.py\" capture {ticket} {round} --source <source>` "
+        "(exit 1: run that reviewer again), then start a `finding-verifier` for that source and run `verify-check` the same way when it finishes. "
+        "Then write a row for every finding into review/triage.md under `## Round {round}` "
+        "(| # | Source | Verdict | File:line | Rule | Finding | Decision | Reason |): sure → fix, invalid → dismiss with the verifier's reason, "
+        "unsure → open the code and decide (a dismiss needs a reason). Run triage-check until it passes, and only then fix every `fix` row. "
         "Decision: no `fix` rows → `Phase: {after_review}`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
         "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: GATE-A`."
     ),
@@ -72,9 +73,7 @@ STEP_TEMPLATES = {
         "and sets `Status: DONE`; without a worktree it only sets DONE)."
     ),
 }
-PLAYWRIGHT_STEP = (
-    ", and the `playwright-reviewer` agent (writes review/playwright-{round}.md) when `python3 \"{scripts}/review_round.py\" playwright-needed {ticket} {round}` prints yes"
-)
+PLAYWRIGHT_STEP = ", `playwright-reviewer`"
 UNKNOWN_PHASE_TEMPLATE = (
     "state.md has `Phase: {phase}`, which has no next step. Set Phase to one of: {phases}, or write `Status: BLOCKED: <reason>`."
 )
@@ -108,18 +107,14 @@ def next_step(state: FeatureState) -> str:
     slice_number = max(state.number_field("Slice"), 1)
     playwright_step = ""
     if state.is_frontend_option_on(PLAYWRIGHT_REVIEWER_OPTION):
-        playwright_step = PLAYWRIGHT_STEP.format(
-            scripts=SCRIPTS_PATH,
-            ticket=state.field("Ticket"),
-            round=round_number,
-        )
+        playwright_step = PLAYWRIGHT_STEP
     instruction = template.format(
         scripts=SCRIPTS_PATH,
         ticket=state.field("Ticket"),
         slice=slice_number,
         round=round_number,
         next_round=round_number + 1,
-        max_rounds=MAX_BEATRICE_ROUNDS,
+        max_rounds=MAX_REVIEW_ROUNDS,
         after_review=state.phase_after_review(),
         playwright=playwright_step,
     )

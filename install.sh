@@ -10,7 +10,7 @@ SCRIPTS_DIR="$CLAUDE_DIR/scripts"
 MANIFEST="$CLAUDE_DIR/workflow-installed-files.txt"
 BACKUP_DIR="$CLAUDE_DIR/workflow-backup"
 COMMANDS=(feature.md map-services.md map-library.md)
-AGENTS=(explorer.md doc-auditor.md skill-mapper.md conventions-reviewer.md playwright-reviewer.md)
+AGENTS=(explorer.md doc-auditor.md skill-mapper.md correctness-reviewer.md conventions-reviewer.md tests-reviewer.md spec-reviewer.md playwright-reviewer.md finding-verifier.md)
 
 if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
     echo "The workflow needs python3 3.10 or newer." >&2

@@ -1,6 +1,6 @@
 # Workflow proposal: the monorepo on Qwen 3.8 27B
 
-Status: v8, built · 01/11/2026 (v7 plus commit/MR title format, worktree closed at the end, triage-check before fixing, test database rule, team code rules)
+Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that replaces Beatrice: 5 reviewers, a verifier each, 3 rounds; §2.5 below describes the old Beatrice design)
 
 ## 0. Decisions so far
 
@@ -12,14 +12,14 @@ Status: v8, built · 01/11/2026 (v7 plus commit/MR title format, worktree closed
 | 4 | Suppressions | None allowed: no `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`. A script fails on any new one. |
 | 5 | Tests source | `services/evermore/tests/CLAUDE.md` defines evermore's test model. The general pytest skill drops its `db_session` and factory examples. |
 | 6 | Force push | `--force-with-lease=<branch>:<last commit the script pushed>`: it refuses if someone else pushed to the branch since then (a plain `--force-with-lease` after `git fetch` would protect nothing). |
-| 7 | Who drives | One orchestrator session does everything, start to finish. `claude -p` is used only to run Beatrice. |
-| 8 | Subagents | For exploration (3 in parallel, each exploring the whole scope) and, since v7, at most 2 reviewers in Gate B next to Beatrice (decision 14); Beatrice's own subagents aren't limited. The orchestrator plans, implements, writes tests and fixes by itself. |
+| 7 | Who drives | One orchestrator session does everything, start to finish. No `claude -p` sessions since v9. |
+| 8 | Subagents | For exploration (3 in parallel, each exploring the whole scope) and, since v9, the review round: 5 reviewers and a verifier per reviewer, up to 5 at once (decision 14). The orchestrator plans, implements, writes tests and fixes by itself. |
 | 9 | Test plan | Exactly four columns: test name, what it checks, expected result, file. |
-| 10 | Beatrice | Two `claude -p` runs in parallel per round, so each can use its own subagents. Up to 5 rounds. |
+| 10 | Beatrice | Replaced in v9 by the in-workflow review round (decision 14). Older features' Beatrice rows (R ids) are still read. |
 | 11 | Install | Ubuntu, user level: `install.sh` copies commands, agents and skills into `~/.claude/`, the scripts into `~/.claude/scripts/`, and merges the hooks into `~/.claude/settings.json`. Not a plugin, not Windows. |
 | 12 | Worktrees | Native git worktrees at `.claude/worktrees/<full branch name>`, made by `worktree.py create` (fetch the base, `git worktree add -b <branch> … origin/<base>`, or reuse the existing branch; never a second BTRC branch) and removed with the same logic. After creating it, the orchestrator calls Claude Code's `EnterWorktree`; each worktree keeps its own feature folder (`<worktree>/docs/features/<ticket>/`, written there from the start; nothing goes into the main checkout's `docs/`), and finishing runs inside the worktree; after the summary the orchestrator calls `ExitWorktree` and `worktree.py remove <T> --done`, which copies the feature folder to the main checkout's `docs/features/<T>/` and removes the worktree (the branch stays). `.worktreeinclude` files are copied in. `/feature … --no-worktree` works in the main checkout instead (switched to the branch; `Worktree:` empty, `Worktree mode: none`). |
-| 13 | Frontend scope | When exploration shows the frontend is touched, the first grill batch asks: a Playwright reviewer alongside Beatrice (recommended yes), a video at the end, an HTML preview (only for new views, dialogs or layout changes), and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or docker, login). Answers go to `## Frontend` in state.md. Test credentials come only from seed/fixture files or the user. |
-| 14 | Review round | Each Gate B round starts, in one message: `run_beatrice.py` in the background (unchanged), the `conventions-reviewer` agent (changed lines only), and the `playwright-reviewer` agent when chosen (round 1, later only when frontend files changed). All findings go into one `triage.md` with a Source column; the 2/2 merge and the dismissed memory stay per source; max 5 rounds, round-5 handling unchanged. |
+| 13 | Frontend scope | When exploration shows the frontend is touched, the first grill batch always suggests a Playwright reviewer, a video and an HTML preview with design options (recommended yes, off only when the user says no), and, if the reviewer or the video is yes, how to run the app. Answers go to `## Frontend` in state.md. Test credentials come only from seed/fixture files or the user. |
+| 14 | Review round | Since v9: in one message, 5 reviewers (correctness K, conventions C, tests T, spec S, playwright P when chosen), each with a "you do NOT judge" list, each file ending `Done: k finding(s)`. As each finishes, `review_round.py capture` checks it and a `finding-verifier` gives every finding `sure`, `unsure` or `invalid`. triage.md: sure → fix, invalid → dismiss, unsure → the orchestrator decides; `triage-check` enforces it. Up to 3 rounds. |
 | 15 | HTML preview | Static mockups in `docs/features/<T>/mockups/<screen>.html` before the spec: plain HTML/CSS, no CDN, light/dark and RTL switches, empty/loading/error states, close to Vuetify. Changed in the grill until approved; the spec links them. |
 | 16 | Video | Suggested (recommended yes) whenever the frontend is touched, skipped only when the user says no. When chosen, a `VIDEO` phase after Gate B records one Playwright `recordVideo` run of the new behaviour to `docs/features/<T>/video/<T>.webm`, listed in summary.md. A failure is noted, never BLOCKED. |
 | 17 | Commits and MRs | Title only, no description. Commit: `<type>(<service>): <what was done>` (`feat(sunrise): …`), no ticket. MR: the same + ` (BTRC-<n>)`; several tickets joined with ` & `, each part with its own `(BTRC-<n>)`. |
@@ -144,7 +144,7 @@ The likely cause, which I checked by reading the code: `scripts/hooks/post_edit_
 4. Each convention skill starts with: "Applies to code you write or change. Never to unchanged lines."
 5. What scripts can't tell apart (a needed change vs. a style rewrite of the same line) is left to rule 2 and to Beatrice's "is anything in the diff not what we asked for" check.
 
-### 2.5 Beatrice (P2)
+### 2.5 Beatrice (P2) — replaced in v9 by decision 14; kept for history
 **How the command runs: two `claude -p` sessions per round.** A subagent can't start subagents of its own, so if Beatrice ran as a subagent, any subagents her command uses wouldn't work. A `claude -p` session is a full session, so it can. The orchestrator runs one command, in the background (a run can take longer than a normal command's time limit), and is told when it finishes:
 ```
 python3 "$HOME/.claude/scripts/run_beatrice.py" BTRC-1234 <round>

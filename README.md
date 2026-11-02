@@ -1,6 +1,6 @@
 # claude-workflow
 
-A Claude Code workflow for our monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, a shared models library, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for at most 2 reviewers next to Beatrice (whose skill starts as many subagents as it wants). It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
+A Claude Code workflow for our monorepo (evermore = CRUD on Postgres/SQLModel, twilight = reverse proxy, a shared models library, Vue/Vuetify frontend). It's built for a local 27B model: the phase order lives in `state.md` and a Stop hook, checks are scripts, one orchestrator session does the work, and the orchestrator's own subagents are used only to explore and for the review round (5 reviewers, a verifier each, up to 5 at once). It installs at user level into `~/.claude` on Ubuntu. The design is in [PROPOSAL.md](PROPOSAL.md).
 
 ```
 /feature BTRC-1234 "add CSV export to entities" [base] [--no-worktree]
@@ -20,9 +20,9 @@ After (no questions; the Stop hook keeps it going until DONE or BLOCKED)
   6 Build        per slice → check_slice.py (lint, types, suppressions, scope; changed lines only)
   7 Tests        test-plan.md (4 columns) → tests → changed-line coverage
   8 Gate A       gate_a.py: project lint/typecheck/test, 100% changed-line coverage or a reason, scope, no suppressions
-  9 Gate B       one parallel review round: run_beatrice.py (Beatrice ×2, read-only, merged 2/2 · 1/2)
-                 + conventions-reviewer (changed lines only) + playwright-reviewer (when chosen; app in a real browser)
-                 → review_round.py capture → map every finding in triage.md (Source column), triage-check → then fix all → Gate A … ≤ 5 rounds
+  9 Gate B       review round: 5 reviewers at once (correctness, conventions, tests, spec, playwright when chosen),
+                 each file ends `Done: k finding(s)` → capture → a finding-verifier per reviewer: sure / unsure / invalid
+                 → triage.md (sure = fix, invalid = dismiss, unsure = you decide), triage-check → fix → Gate A … ≤ 3 rounds
  10 Video        (suggested for every frontend change; skipped only when you say no) one Playwright recordVideo run → video/BTRC-1234.webm; never blocks
  11 Finish       finish_branch.py (in the worktree): commit (title only: feat(<service>): …), pull --rebase,
                  force-push with a lease, glab pipeline must pass, containers down
@@ -46,7 +46,7 @@ It copies, and records what it copied in `~/.claude/workflow-installed-files.txt
 | From the repo | To |
 |---|---|
 | `commands/feature.md`, `map-services.md`, `map-library.md` | `~/.claude/commands/` (`/feature`, `/map-services`, `/map-library`) |
-| `agents/explorer.md`, `conventions-reviewer.md`, `playwright-reviewer.md`, `doc-auditor.md`, `skill-mapper.md` | `~/.claude/agents/` |
+| `agents/explorer.md`, the five reviewers (`correctness-`, `conventions-`, `tests-`, `spec-`, `playwright-reviewer.md`), `finding-verifier.md`, `doc-auditor.md`, `skill-mapper.md` | `~/.claude/agents/` |
 | `skills/*` | `~/.claude/skills/` |
 | `scripts/**/*.py` | `~/.claude/scripts/` (executable) |
 | `settings/hooks.json` | merged into the `hooks` of `~/.claude/settings.json` |
@@ -62,7 +62,6 @@ removes exactly the recorded files and the workflow's hook entries, and puts the
 Then:
 1. Copy the CLAUDE.md drafts from `claude-md/` into the monorepo (see `claude-md/README.md`).
 2. Generate the service map once from the monorepo root: `/map-services`.
-3. Beatrice is a **skill**: `beatrice-code-review` in the repo's `.claude/skills/` or `~/.claude/skills/` (or the path in `Beatrice skill:` in state.md). It's never changed, and it gets no description: just "review the branch <Branch> against <Base> and write down your comments".
 
 `agents/review-*.md` from the old flow are kept in `unused/agents/` and are not installed.
 
@@ -109,20 +108,19 @@ Hooks also accept `"onFailure": "block"` (block the action when the hook itself 
 
 ### Environment variables
 
-- `WORKFLOW_ROLE=reviewer`: set by `run_beatrice.py` for the two `claude -p` Beatrice sessions, so the reviewers aren't blocked, checked or kept running by the orchestrator's hooks. Don't set it in your own sessions.
+- `WORKFLOW_ROLE=reviewer`: a session with it set isn't blocked, checked or kept running by the orchestrator's hooks (for a reviewer you run by hand with `claude -p`). Don't set it in your own sessions.
 - `WORKFLOW_CHECKS=1`: run the post-edit checks outside a feature too (e.g. while you edit by hand).
 
 ## The workflow scripts
 
-Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files and Beatrice skill from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `run_beatrice`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
+Run from the repository root (the folder that holds `docs/features/`) as `python3 "$HOME/.claude/scripts/<name>.py"`. All read the branch, base, worktree, compose project/files from `docs/features/<ticket>/state.md`. The long ones (`gate_a`, `finish_branch`) hold `.running.json` for their whole run; a second run of the same feature refuses to start (exit 2).
 
 | Script | Does | Exit codes |
 |---|---|---|
 | `worktree.py create <T> --branch <B> --base <base> [--title "…"] [--no-worktree]` · `remove <T>` | `create` fetches the base and runs `git worktree add -b <Branch> .claude/worktrees/<Branch> origin/<Base>`, or `git worktree add .claude/worktrees/<Branch> <Branch>` when the branch exists (locally or on origin); it never creates a second branch for the same BTRC-n. With `--no-worktree` it switches the main checkout to the branch (creating or reusing it). It keeps `.claude/worktrees/` and `docs/features/` in `.git/info/exclude` and records `Worktree:` / `Worktree mode:`; if the worktree already exists it only records it. A new feature (`--branch`, `--base`, `--title`) gets its state.md written in the code root; an existing one is moved into the worktree. It also copies `.worktreeinclude` files. `remove` copies the feature folder into the main checkout's `docs/features/`, then removes the worktree (the branch stays); `--done` also sets `Status: DONE`. Its git calls don't pass through the Bash hook. | 0 · 1 git failed · 2 setup (incl. another branch for the ticket) |
 | `check_slice.py <T> <n>` | Changed-line checks (conventions, ruff, eslint, `mypy --strict`, suppressions) + scope (changed, deleted or renamed files outside slices 1..n fail; changed existing lines are listed). Advances `Slice`/`Phase` on pass. | 0 pass · 1 problems · 2 setup (incl. git errors, unknown base) |
-| `gate_a.py <T>` | Same checks over the branch (scope = all slices + test-plan files), then every `## Commands` entry through `bash -lc`; `coverage*` entries must use `diff-cover --include-untracked`, are read as diff-cover output, minus `## Coverage exemptions` (exact repo-relative paths). Fails if diff-cover saw no lines while code changed. Syncs dismissed findings per source from `review/triage.md` (Source column: beatrice, conventions, playwright). Sets `Phase: GATE-B`, or `VIDEO`/`FINISH` once round 5 is triaged. | 0 · 1 · 2 |
-| `run_beatrice.py <T> <round>` | Two read-only `claude -p --output-format json` sessions in parallel in the worktree (`--disallowedTools Edit,Write,MultiEdit,NotebookEdit`, `--permission-mode default`, a narrow `--allowedTools`), 30 min timeout, one retry each. The prompt only asks to review the branch with the `beatrice-code-review` skill and write down the comments (no description, no appended instructions); `Agent` and `Skill` are allowed and her subagents aren't limited. A skill outside the project/user skills folders is named by its file, with `--add-dir`. Missing skill → exit 2 naming the paths tried. Her free-form comments are parsed into findings. Merges into `review/beatrice-<round>.md` (`2/2`/`1/2`, earlier dismissals noted) and `beatrice-<round>.json` (with each flagged line's text, which the dismissed-findings memory uses). Round 1 goes into `beatrice-log.md` once. | 0 · 1 both runs failed · 2 |
-| `review_round.py capture <T> <round>` · `playwright-needed <T> <round>` | `capture` (run when the round's reviewers have finished, before fixing) reads `review/conventions-<round>.md` and `review/playwright-<round>.md` (findings as `## C<round>-<i> \| <file:line> \| <rule>` / `## P…`), stores them with each flagged line's text in `<source>-<round>.json`, notes findings dismissed in earlier rounds, and records a fingerprint of the changed frontend files. `playwright-needed` prints `yes` in round 1 and later only when frontend files changed since the reviewer's last run (and only when the grill chose the reviewer). | 0 · 2 |
+| `gate_a.py <T>` | Same checks over the branch (scope = all slices + test-plan files), then every `## Commands` entry through `bash -lc`; `coverage*` entries must use `diff-cover --include-untracked`, are read as diff-cover output, minus `## Coverage exemptions` (exact repo-relative paths). Fails if diff-cover saw no lines while code changed. Syncs dismissed findings per source from `review/triage.md` (Source column: correctness, conventions, tests, spec, playwright; beatrice for older features). Sets `Phase: GATE-B`, or `VIDEO`/`FINISH` once round 3 is triaged. | 0 · 1 · 2 |
+| `review_round.py expected <T> <round>` · `capture <T> <round> --source <s>` · `verify-check <T> <round> --source <s>` · `triage-check <T> <round>` | `expected` prints the round's reviewers. `capture` checks `review/<s>-<round>.md` (every `## ` line is a finding `## <id> \| <file:line> \| <rule>` of that source and round, and the last `Done: <k> finding(s)` matches) and stores the findings with each flagged line's text in `<s>-<round>.json`, noting earlier dismissals. `verify-check` checks `review/verify-<s>-<round>.md` gives every finding exactly one `sure`/`unsure`/`invalid`. `triage-check` checks every expected source is captured and verified and every finding has a triage.md row whose Verdict matches and whose Decision follows it (sure → fix, invalid → dismiss, unsure → either, a dismiss with a Reason). A source failing capture or verify-check 3 times in a row blocks the feature. | 0 · 1 incomplete · 2 setup |
 | `finish_branch.py <T>` | In the code root: checks the code root (worktree, or the main checkout when `Worktree mode: none`) is on `Branch` and `Branch` ≠ `Base`; commit (or, after a conflict, refuses while files are unmerged or hold `<<<<<<<`/`>>>>>>>`, then `rebase --continue`) → fetch → refuses if the remote branch moved to a commit this script didn't push → pull --rebase → push `HEAD:refs/heads/<Branch>` with `--force-with-lease=<ref>:<last pushed commit>` → `glab ci status` every 30 s (≤ 45 min) → `docker compose -p <project> -f <files> down --remove-orphans` → (with `Worktree mode: none`, pull the base in the main checkout) → `Phase: SUMMARY`. The commit message is `Commit title:` (or `feat(<changed services>): <spec title>`), title only. Finished steps are recorded under `## Finish`, so a re-run resumes. | 0 · 10 conflict · 20 pipeline failed · 30 push rejected · 1 other · 2 setup |
 
 Each script counts failed runs in `Tries:`; the third failed run of the same step (or the same finish code) writes `BLOCKED`. Exit 30 blocks at once.
@@ -141,16 +139,13 @@ These need checking in the work environment; each has an isolated spot to adjust
 
 | Point | Where to adjust |
 |---|---|
-| `claude -p` loads skills from `<code root>/.claude/skills/` and `~/.claude/skills/` and runs one when the prompt names it. | `run_beatrice.py` `build_prompt`, `is_discovered_skill` |
-| `--allowedTools` / `--disallowedTools` syntax (one comma-separated argument each), `--append-system-prompt`, the `--output-format json` fields (`is_error`, `result`, `permission_denials`), and which Bash commands Beatrice really runs. Override the allowed list per feature with `Beatrice tools:`. | `run_beatrice.py` `DEFAULT_ALLOWED_TOOLS`, `read_review_result` |
-| Beatrice's output format. The findings block is asked for; without it the free-form parser reads bullets, numbered items, tables (by header) and numbered/located headings, and the raw outputs are always kept. | `run_beatrice.py` `parse_free_form` |
 | `glab ci status --branch <b>` flags and output (`Pipeline state:`, `SHA:`, tab-separated `(failed)` job lines), and `glab ci trace <job> --branch <b>`. `glab ci get -b <b> -F json` may be the sturdier source. | `finish_branch.py` `parse_pipeline_state`, `failed_job_name` |
 | `EnterWorktree` exists in the work environment's Claude Code version, and the isolation rules match the docs (code.claude.com/docs/en/worktrees). Without them the fallback above applies. | `commands/feature.md` steps S and F |
 | `$HOME` is expanded in the hook commands (they run through a shell). | `settings/hooks.json` |
 | The Playwright reviewer and the video: no frontend repo or Playwright on this machine. The agent loads Playwright from the frontend folder with `require(require.resolve('playwright', { paths: [...] }))` from a script in `docs/features/<T>/playwright/`, uses only preinstalled browsers, and mocks the API with `page.route()` or uses the branch's docker stack. `recordVideo` output naming, the dev-server start/stop and the login flow need a real run. | `agents/playwright-reviewer.md`, `commands/feature.md` step V |
 | The HTML mockups use CSS `:has()` for the theme/RTL/state switches (no JavaScript); the offline browser must support it (Chromium 105+, Firefox 121+). | `skills/html-mockups/templates/mockup.html` |
 | `.claude/rules/*.md` with a `paths:` glob, as an alternative to folder CLAUDE.md files. | `claude-md/README.md` |
-| The monorepo paths in `claude-md/`, the `## Commands` lines, `Compose files`, and the Beatrice skill path (when it isn't in a skills folder). | each feature's `state.md` |
+| The monorepo paths in `claude-md/`, the `## Commands` lines, and `Compose files`. | each feature's `state.md` |
 | Add `-v` to `docker compose down` only if the branch's volumes hold nothing you need. | `finish_branch.py` `stop_containers` |
 
 ## Developing

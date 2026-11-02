@@ -63,7 +63,7 @@ def test_next_step_finished_feature_allows(
         ("BUILD", 'check_slice.py" BTRC-1234 1'),
         ("TESTS", "test-plan.md"),
         ("GATE-A", 'gate_a.py" BTRC-1234'),
-        ("GATE-B", 'run_beatrice.py" BTRC-1234 1'),
+        ("GATE-B", 'review_round.py" triage-check BTRC-1234 1'),
         ("FINISH", 'finish_branch.py" BTRC-1234'),
         ("SUMMARY", "summary.md"),
         ("NONSENSE", "has no next step"),
@@ -228,16 +228,18 @@ def test_next_step_phases_match_feature_command():
     [
         'python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>',
         'python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>',
-        'python3 "$HOME/.claude/scripts/run_beatrice.py" <Ticket> <Round>',
         'python3 "$HOME/.claude/scripts/finish_branch.py" <Ticket>',
-        "keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
-        "If `review/triage.md` already has `## Round <Round>`",
-        'python3 "$HOME/.claude/scripts/review_round.py" capture <Ticket> <Round>',
-        'python3 "$HOME/.claude/scripts/review_round.py" playwright-needed <Ticket> <Round>',
+        "keep `Round: 3`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
+        'python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>',
+        'python3 "<scripts>/review_round.py" capture <Ticket> <Round> --source <source>',
+        'python3 "<scripts>/review_round.py" verify-check <Ticket> <Round> --source <source>',
+        'python3 "<scripts>/review_round.py" expected <Ticket> <Round>',
         'python3 "$HOME/.claude/scripts/worktree.py" create <Ticket>',
-        "The `conventions-reviewer` agent",
-        "The `playwright-reviewer` agent",
-        "| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |",
+        "`correctness-reviewer`, `conventions-reviewer`, `tests-reviewer`, `spec-reviewer`, `playwright-reviewer`",
+        "**`finding-verifier`**",
+        "| # | Source | Verdict | File:line | Rule | Finding | Decision | Reason |",
+        "`sure` → Decision **fix**. Always.",
+        "`invalid` → Decision **dismiss**",
         "docs/features/<Ticket>/video/<Ticket>.webm",
     ],
 )
@@ -245,16 +247,16 @@ def test_next_step_feature_command_holds_the_steps_the_hook_names(fragment: str)
     assert fragment in FEATURE_COMMAND.read_text(encoding="utf-8")
 
 
-def test_next_step_gate_b_text_matches_the_round_five_rule(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+def test_next_step_gate_b_text_matches_the_round_three_rule(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
     feature_directory = make_feature_state(tmp_path, phase="GATE-B")
     state_path = feature_directory / "state.md"
-    state_path.write_text(state_path.read_text(encoding="utf-8").replace("Round: 1", "Round: 5"), encoding="utf-8")
+    state_path.write_text(state_path.read_text(encoding="utf-8").replace("Round: 1", "Round: 3"), encoding="utf-8")
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert "keep `Round: 5`, `Phase: GATE-A`" in reason
-    assert "already has `## Round 5`" in reason
-    assert 'python3 "$HOME/.claude/scripts/run_beatrice.py" BTRC-1234 5' in reason
+    assert "keep `Round: 3`, `Phase: GATE-A`" in reason
+    assert "Round 3 of 3" in reason
+    assert 'review_round.py" triage-check BTRC-1234 3' in reason
 
 
 def set_frontend(feature_directory: Path, *option_lines: str):
@@ -276,9 +278,10 @@ def test_next_step_gate_b_names_the_parallel_reviewers(tmp_path: Path, make_feat
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert "run_beatrice.py\" BTRC-1234 1` in the background" in reason
-    assert "`conventions-reviewer` agent" in reason
-    assert "review_round.py\" capture BTRC-1234 1" in reason
+    assert "`correctness-reviewer`, `conventions-reviewer`, `tests-reviewer`, `spec-reviewer`." in reason
+    assert "review_round.py\" capture BTRC-1234 1 --source <source>" in reason
+    assert "`finding-verifier`" in reason
+    assert "sure → fix, invalid → dismiss" in reason
     assert "playwright-reviewer" not in reason
     assert "no `fix` rows → `Phase: FINISH`" in reason
 
@@ -289,8 +292,7 @@ def test_next_step_gate_b_with_playwright_and_video_names_them(tmp_path: Path, m
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert "`playwright-reviewer` agent" in reason
-    assert "review_round.py\" playwright-needed BTRC-1234 1` prints yes" in reason
+    assert "`spec-reviewer`, `playwright-reviewer`." in reason
     assert "no `fix` rows → `Phase: VIDEO`" in reason
 
 

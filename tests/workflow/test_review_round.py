@@ -16,19 +16,23 @@ CONVENTIONS_REVIEW = """# Conventions review, round 1
 
 ## C1-2 | no file | no rule
 Something general.
-"""
-PLAYWRIGHT_REVIEW = """# Playwright review, round 1
-App: http://localhost:5173 · backend: mocked
 
-## P1-1 | frontend/src/views/Entities.vue:2 | REQ-3
-Spinner never stops on an empty list. Screenshot: empty.png.
+Done: 2 finding(s)
+"""
+EMPTY_REVIEW = "# {title} review, round 1\n\nDone: 0 finding(s)\n"
+CONVENTIONS_VERIFY = """# Verify conventions, round 1
+
+## C1-1 | invalid
+Evidence: `rows` is a bool flag here, line 3.
+
+## C1-2 | unsure
+Couldn't tell.
 """
 SOURCED_TRIAGE = """## Round 1
-| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |
+| # | Source | Verdict | File:line | Rule | Finding | Decision | Reason |
 |---|---|---|---|---|---|---|---|
-| R1-1 | beatrice | 2/2 | app/entities.py:3 | PY-23 | truthy check | fix | |
-| C1-1 | conventions | - | app/entities.py:3 | PY-23 | truthy check | dismiss | rows is a bool flag here |
-| P1-1 | playwright | - | frontend/src/views/Entities.vue:2 | REQ-3 | spinner | dismiss | screenshot shows the message |
+| C1-1 | conventions | invalid | app/entities.py:3 | PY-23 | truthy check | dismiss | rows is a bool flag here |
+| C1-2 | conventions | unsure | - | - | general | fix | |
 """
 
 
@@ -63,6 +67,34 @@ def run_main(monkeypatch: pytest.MonkeyPatch, *arguments: str) -> int:
     return review_round.main()
 
 
+def state_of(feature_directory: Path) -> FeatureState:
+    return FeatureState.load(feature_directory / "state.md")
+
+
+def turn_on_playwright(feature_directory: Path):
+    state = state_of(feature_directory)
+    state.append_to_section("Frontend", "- Playwright reviewer: yes")
+    state.save()
+
+
+def run_main(monkeypatch: pytest.MonkeyPatch, *arguments: str) -> int:
+    monkeypatch.setattr("sys.argv", ["review_round.py", *arguments])
+    return review_round.main()
+
+
+def write_review(review_feature: Path, name: str, text: str):
+    (review_feature / "review" / name).write_text(text, encoding="utf-8")
+
+
+def complete_round_one(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+    for review_source in ("correctness", "tests", "spec"):
+        write_review(review_feature, f"{review_source}-1.md", EMPTY_REVIEW.format(title=review_source))
+        run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", review_source)
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+    write_review(review_feature, "verify-conventions-1.md", CONVENTIONS_VERIFY)
+
+
 def test_parse_reviewer_findings_reads_headers_and_text():
     findings = review_round.parse_reviewer_findings(CONVENTIONS_REVIEW)
 
@@ -71,114 +103,164 @@ def test_parse_reviewer_findings_reads_headers_and_text():
         ("C1-2", "", 0, ""),
     ]
     assert "len(rows) == 0" in findings[0].text
+    assert "Done:" not in findings[1].text
 
 
-def test_capture_stores_the_flagged_line_text_per_source(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
-    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
-    (review_feature / "review" / "playwright-1.md").write_text(PLAYWRIGHT_REVIEW, encoding="utf-8")
+def test_expected_lists_playwright_only_when_chosen(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    run_main(monkeypatch, "expected", "BTRC-1234", "1")
+    without = capsys.readouterr().out.strip()
+    turn_on_playwright(review_feature)
+    run_main(monkeypatch, "expected", "BTRC-1234", "1")
+    with_playwright = capsys.readouterr().out.strip()
 
-    exit_code = run_main(monkeypatch, "capture", "BTRC-1234", "1")
+    assert (without, with_playwright) == ("correctness conventions tests spec", "correctness conventions tests spec playwright")
 
-    conventions = json.loads((review_feature / "review" / "conventions-1.json").read_text(encoding="utf-8"))
-    playwright = json.loads((review_feature / "review" / "playwright-1.json").read_text(encoding="utf-8"))
+
+def test_capture_stores_the_flagged_line_text(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+
+    exit_code = run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+
+    records = json.loads((review_feature / "review" / "conventions-1.json").read_text(encoding="utf-8"))
     assert exit_code == 0
-    assert conventions[0]["line_text"] == "if not rows:"
-    assert playwright[0]["line_text"] == "<div />"
-    assert state_of(review_feature).frontend_option("Playwright checked") != ""
+    assert records[0]["line_text"] == "if not rows:"
 
 
-def test_triage_with_source_column_keeps_dismissals_per_source(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
-    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
-    (review_feature / "review" / "playwright-1.md").write_text(PLAYWRIGHT_REVIEW, encoding="utf-8")
-    run_main(monkeypatch, "capture", "BTRC-1234", "1")
-    code_root = review_feature.parent.parent.parent
-    (code_root / "app" / "entities.py").write_text("shifted by a fix\na = 1\nb = 2\nif not rows:\n", encoding="utf-8")
-    (review_feature / "review" / "triage.md").write_text(SOURCED_TRIAGE, encoding="utf-8")
+@pytest.mark.parametrize("review_text,expected_problem", [
+    (CONVENTIONS_REVIEW.replace("Done: 2 finding(s)\n", ""), "no `Done:"),
+    (CONVENTIONS_REVIEW.replace("Done: 2", "Done: 3"), "`Done: 3` but 2"),
+    (CONVENTIONS_REVIEW.replace("## C1-2 | no file | no rule", "## C1-2 no file"), "not a finding header"),
+    (CONVENTIONS_REVIEW.replace("C1-2", "K1-2"), "should start with C1-"),
+])
+def test_capture_refuses_an_incomplete_reviewer_file(
+    review_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    review_text: str,
+    expected_problem: str,
+):
+    write_review(review_feature, "conventions-1.md", review_text)
 
-    dismissed = gate_a.sync_dismissed(state_of(review_feature))
+    exit_code = run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
 
-    assert sorted((dismissal.source, dismissal.finding_id) for dismissal in dismissed) == [("conventions", "C1-1"), ("playwright", "P1-1")]
-    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "conventions") is not None
-    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "beatrice") is None
-
-
-def test_capture_notes_findings_dismissed_in_an_earlier_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
-    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
-    run_main(monkeypatch, "capture", "BTRC-1234", "1")
-    (review_feature / "review" / "triage.md").write_text(SOURCED_TRIAGE, encoding="utf-8")
-    (review_feature / "review" / "conventions-2.md").write_text(CONVENTIONS_REVIEW.replace("C1-", "C2-").replace("round 1", "round 2"), encoding="utf-8")
-
-    run_main(monkeypatch, "capture", "BTRC-1234", "2")
-
-    second_review = (review_feature / "review" / "conventions-2.md").read_text(encoding="utf-8")
-    assert "## Dismissed in earlier rounds" in second_review
-    assert "C2-1: dismissed in round 1, because rows is a bool flag here" in second_review
+    assert exit_code == 1
+    assert expected_problem in capsys.readouterr().out
+    assert not (review_feature / "review" / "conventions-1.json").exists()
 
 
-def test_playwright_needed_is_no_when_the_grill_said_no(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    run_main(monkeypatch, "playwright-needed", "BTRC-1234", "1")
+def test_capture_of_a_missing_file_three_times_blocks_the_feature(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    for _ in range(3):
+        run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "tests")
 
-    assert capsys.readouterr().out.strip() == "no"
-
-
-def test_playwright_needed_in_round_one_is_yes(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    turn_on_playwright(review_feature)
-
-    run_main(monkeypatch, "playwright-needed", "BTRC-1234", "1")
-
-    assert capsys.readouterr().out.strip() == "yes"
+    assert state_of(review_feature).status().startswith("BLOCKED")
 
 
-def test_playwright_needed_later_follows_frontend_changes(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    turn_on_playwright(review_feature)
-    vue_file = review_feature.parent.parent.parent / "frontend" / "src" / "views" / "Entities.vue"
-    vue_file.write_text("<template>\n  <section />\n</template>\n", encoding="utf-8")
-    (review_feature / "review" / "playwright-1.md").write_text(PLAYWRIGHT_REVIEW, encoding="utf-8")
-    run_main(monkeypatch, "capture", "BTRC-1234", "1")
+def test_verify_check_wants_one_verdict_per_finding(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+    write_review(review_feature, "verify-conventions-1.md", CONVENTIONS_VERIFY.replace("## C1-2 | unsure\nCouldn't tell.\n", ""))
     capsys.readouterr()
 
-    run_main(monkeypatch, "playwright-needed", "BTRC-1234", "2")
-    unchanged = capsys.readouterr().out.strip()
-    vue_file.write_text("<template>\n  <article />\n</template>\n", encoding="utf-8")
-    run_main(monkeypatch, "playwright-needed", "BTRC-1234", "2")
-    changed = capsys.readouterr().out.strip()
+    exit_code = run_main(monkeypatch, "verify-check", "BTRC-1234", "1", "--source", "conventions")
 
-    assert (unchanged, changed) == ("no", "yes")
+    assert exit_code == 1
+    assert "C1-2 has no verdict" in capsys.readouterr().out
 
 
-def test_gate_a_after_round_five_with_video_moves_to_video(review_feature: Path):
-    state = state_of(review_feature)
-    state.set_field("Round", "5")
-    state.append_to_section("Frontend", "- Video: yes")
-    state.save()
-    (review_feature / "review" / "triage.md").write_text("## Round 5\n", encoding="utf-8")
+def test_verify_check_needs_no_verifier_for_zero_findings(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    write_review(review_feature, "spec-1.md", EMPTY_REVIEW.format(title="Spec"))
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "spec")
 
-    message = gate_a.record_gate_result(state_of(review_feature), True)
+    exit_code = run_main(monkeypatch, "verify-check", "BTRC-1234", "1", "--source", "spec")
 
-    assert state_of(review_feature).field("Phase") == "VIDEO"
-    assert "Phase is now VIDEO" in message
+    assert exit_code == 0
 
 
-def test_triage_check_lists_findings_missing_from_the_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
-    run_main(monkeypatch, "capture", "BTRC-1234", "1")
-    (review_feature / "review" / "triage.md").write_text(SOURCED_TRIAGE, encoding="utf-8")
+def test_triage_check_passes_when_rows_follow_the_verdicts(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    complete_round_one(review_feature, monkeypatch)
+    write_review(review_feature, "triage.md", SOURCED_TRIAGE)
+
+    exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
+
+    assert exit_code == 0
+
+
+@pytest.mark.parametrize("triage_text,expected_problem", [
+    (SOURCED_TRIAGE.replace("| C1-2 | conventions | unsure | - | - | general | fix | |\n", ""), "C1-2: no row"),
+    (SOURCED_TRIAGE.replace("invalid | app/entities.py:3 | PY-23 | truthy check | dismiss", "invalid | app/entities.py:3 | PY-23 | truthy check | fix"), "verdict `invalid` needs Decision dismiss"),
+    (SOURCED_TRIAGE.replace("| unsure | - | - | general | fix | |", "| sure | - | - | general | fix | |"), "the verifier said `unsure`"),
+    (SOURCED_TRIAGE.replace("| general | fix | |", "| general | dismiss | |"), "a dismiss needs a Reason"),
+])
+def test_triage_check_refuses_rows_that_dont_follow_the_verdict(
+    review_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    triage_text: str,
+    expected_problem: str,
+):
+    complete_round_one(review_feature, monkeypatch)
+    write_review(review_feature, "triage.md", triage_text)
+    capsys.readouterr()
+
+    exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
+
+    assert exit_code == 1
+    assert expected_problem in capsys.readouterr().out
+
+
+def test_triage_check_refuses_a_round_with_a_reviewer_missing(review_feature: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    write_review(review_feature, "conventions-1.md", CONVENTIONS_REVIEW)
+    run_main(monkeypatch, "capture", "BTRC-1234", "1", "--source", "conventions")
+    write_review(review_feature, "verify-conventions-1.md", CONVENTIONS_VERIFY)
+    write_review(review_feature, "triage.md", SOURCED_TRIAGE)
     capsys.readouterr()
 
     exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
 
     output = capsys.readouterr().out
     assert exit_code == 1
-    assert "C1-2" in output
-    assert "C1-1" not in output
+    assert "correctness: not captured" in output
 
 
-def test_triage_check_passes_when_every_finding_has_a_row(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
-    (review_feature / "review" / "conventions-1.md").write_text(CONVENTIONS_REVIEW, encoding="utf-8")
-    run_main(monkeypatch, "capture", "BTRC-1234", "1")
-    full_triage = SOURCED_TRIAGE + "| C1-2 | conventions | - | - | - | general | dismiss | not about a changed line |\n"
-    (review_feature / "review" / "triage.md").write_text(full_triage, encoding="utf-8")
+def test_dismissed_rows_feed_the_dismissed_memory_per_source(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    complete_round_one(review_feature, monkeypatch)
+    write_review(review_feature, "triage.md", SOURCED_TRIAGE)
 
-    exit_code = run_main(monkeypatch, "triage-check", "BTRC-1234", "1")
+    dismissed = gate_a.sync_dismissed(state_of(review_feature))
 
-    assert exit_code == 0
+    assert [(dismissal.source, dismissal.finding_id) for dismissal in dismissed] == [("conventions", "C1-1")]
+    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "conventions") is not None
+    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "correctness") is None
+
+
+def test_capture_notes_findings_dismissed_in_an_earlier_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
+    complete_round_one(review_feature, monkeypatch)
+    write_review(review_feature, "triage.md", SOURCED_TRIAGE)
+    write_review(review_feature, "conventions-2.md", CONVENTIONS_REVIEW.replace("C1-", "C2-").replace("round 1", "round 2"))
+
+    run_main(monkeypatch, "capture", "BTRC-1234", "2", "--source", "conventions")
+
+    second_review = (review_feature / "review" / "conventions-2.md").read_text(encoding="utf-8")
+    assert "## Dismissed in earlier rounds" in second_review
+    assert "C2-1: dismissed in round 1, because rows is a bool flag here" in second_review
+
+
+def test_older_beatrice_rows_with_marks_still_feed_the_dismissed_memory(review_feature: Path):
+    write_review(review_feature, "triage.md", "## Round 1\n| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |\n|---|---|---|---|---|---|---|---|\n| R1-1 | beatrice | 2/2 | app/entities.py:3 | PY-23 | truthy | dismiss | a bool flag |\n")
+
+    dismissed = gate_a.sync_dismissed(state_of(review_feature))
+
+    assert [(dismissal.source, dismissal.line_text) for dismissal in dismissed] == [("beatrice", "if not rows:")]
+
+
+def test_gate_a_after_round_three_with_video_moves_to_video(review_feature: Path):
+    state = state_of(review_feature)
+    state.set_field("Round", "3")
+    state.append_to_section("Frontend", "- Video: yes")
+    state.save()
+    write_review(review_feature, "triage.md", "## Round 3\n")
+
+    message = gate_a.record_gate_result(state_of(review_feature), True)
+
+    assert state_of(review_feature).field("Phase") == "VIDEO"
+    assert "Phase is now VIDEO" in message

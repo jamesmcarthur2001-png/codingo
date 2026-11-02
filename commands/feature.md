@@ -1,5 +1,5 @@
 ---
-description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, Gate A, parallel review rounds (Beatrice, conventions, Playwright; up to 5), optional video, finish script (CI must pass), summary, worktree closed. Driven by docs/features/<ticket>/state.md and the Stop hook."
+description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, Gate A, review rounds of 5 parallel reviewers, each checked by a verifier (up to 3), optional video, finish script (CI must pass), summary, worktree closed. Driven by docs/features/<ticket>/state.md and the Stop hook."
 argument-hint: "<BTRC-n> \"<description>\" [base] [--no-worktree] | resume <BTRC-n>"
 ---
 
@@ -7,7 +7,7 @@ argument-hint: "<BTRC-n> \"<description>\" [base] [--no-worktree] | resume <BTRC
 
 Request: `$ARGUMENTS`
 
-You are the orchestrator. You do every step yourself, in this one session. Your own subagents are used only for exploration (step E) and, in Gate B, for at most 2 reviewers next to Beatrice (`conventions-reviewer`, `playwright-reviewer`). Beatrice isn't one of them: her two `claude -p` sessions are full sessions, and her skill starts as many subagents as it wants. Never tell her, or limit her, how many.
+You are the orchestrator. You do every step yourself, in this one session. Your own subagents are used only for exploration (step E) and for the review round (step GB): the five reviewers (`correctness-reviewer`, `conventions-reviewer`, `tests-reviewer`, `spec-reviewer`, `playwright-reviewer`) and a `finding-verifier` for each. Up to 5 run at once.
 
 ## Rules (always)
 1. `state.md` is the truth. Update it after every step, before the next one. After a compaction, read it again.
@@ -18,7 +18,7 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
 7. Try limits: a step fails → fix → run again. The scripts write `Status: BLOCKED: <reason>` on the 3rd failed run of the same step. For steps without a script (tests), do the same yourself. When Status is BLOCKED: tell the user the reason and stop. The VIDEO step is never a reason to block.
-8. While `run_beatrice.py`, `gate_a.py` or `finish_branch.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
+8. While `gate_a.py` or `finish_branch.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
 9. Don't commit during the build. `finish_branch.py` makes the commit.
    Commits, merge requests and pushes get a **title only, no description** (no body, no trailers, no `-o merge_request.description`).
    Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, joined by a comma and a space when several (`feat(evermore, frontend): …`). No ticket in the commit.
@@ -39,12 +39,12 @@ Top fields are `Name: value` lines before the first `## `. Change one by rewriti
 | `Session` | empty; the Stop hook writes this session's id after approval and then acts only for this session |
 | `Worktree` / `Worktree mode` | written by `worktree.py`: `.claude/worktrees/<Branch>` and `worktree`, or empty and `none` |
 | `Slice` / `Slices` | current slice / number of slices in plan.md |
-| `Round` | review round, 1–5 |
+| `Round` | review round, 1–3 |
 | `Tries` | `0`, or `<STEP> <failed runs>` (e.g. `TESTS 1`) |
 | `Test database` | the database URL the tests use (host, port, name; never a password), written before the first test run |
 | `Commit title` / `MR title` | written in step F: `feat(evermore): add CSV export` and `feat(evermore): add CSV export (BTRC-1234)` |
 
-`## Frontend` (filled in by the grill, step G): `- Touches frontend:`, `- Playwright reviewer:`, `- Video:`, `- HTML preview:`, `- Dev server:`, `- App URL:`, `- Backend:`, `- Login:` (yes/no or a value each). `review_round.py` adds `- Playwright checked:`.
+`## Frontend` (filled in by the grill, step G): `- Touches frontend:`, `- Playwright reviewer:`, `- Video:`, `- HTML preview:`, `- Dev server:`, `- App URL:`, `- Backend:`, `- Login:` (yes/no or a value each).
 
 Phases after approval: BUILD, TESTS, GATE-A, GATE-B, VIDEO, FINISH, SUMMARY
 
@@ -80,8 +80,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
      If `EnterWorktree` isn't available in this Claude Code version: stay in the main checkout, but read and write the feature folder only with absolute paths into the worktree (`<repo root>/.claude/worktrees/<Branch>/docs/features/<Ticket>/`), never the main checkout's `docs/features/`. Tell the user once that the worktree's folder `CLAUDE.md` files may not load (read them yourself before editing a folder).
    - With `--no-worktree`: add `--no-worktree` to the same command. It switches the main checkout to `<Branch>` (creating it from `origin/<Base>` or reusing it), writes the feature folder in the main checkout's `docs/features/` (that checkout is the branch's code root) and records `Worktree mode: none`.
    Exit 2: another branch for this BTRC-n exists, or a name is missing: tell the user and stop. Exit 1: git failed (e.g. uncommitted changes in the main checkout): show the message and stop.
-5. Find Beatrice's **skill**: `.claude/skills/beatrice-code-review/SKILL.md` in the code root, else `~/.claude/skills/beatrice-code-review/SKILL.md`. Found → leave `Beatrice skill:` empty (the script finds it the same way). Not found → ask the user for its path during the grill and write it as `Beatrice skill: <path to SKILL.md or its folder>`. `run_beatrice.py` stops with a setup error naming the paths it tried when the skill is missing.
-6. Fill `## Commands` from the `service-map` skill and the root/service `CLAUDE.md`. Each runs in the code root through `bash -lc`. Names starting with `coverage` must print diff-cover output and pass `--include-untracked` (new files stay untracked until finish). The test command must write the coverage report the coverage command reads. Example:
+5. Fill `## Commands` from the `service-map` skill and the root/service `CLAUDE.md`. Each runs in the code root through `bash -lc`. Names starting with `coverage` must print diff-cover output and pass `--include-untracked` (new files stay untracked until finish). The test command must write the coverage report the coverage command reads. Example:
    ```
    - lint: npx nx affected -t lint --base=origin/<Base>
    - typecheck: npx nx affected -t typecheck --base=origin/<Base>
@@ -90,8 +89,8 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    ```
    No test or coverage command for twilight: it has no tests.
    If the service map is missing or mostly `TODO`, say that `/map-services` gives better results, and use what CLAUDE.md says.
-7. `Compose files:` = the `-f` files you use to start this branch's containers (space-separated, relative to the code root), e.g. `docker-compose.yml docker-compose.dev.yml`. Start containers only with `docker compose -p <Compose project> -f <each file> up -d`.
-8. Complete `docs/features/BTRC-<n>/state.md` in the code root (`worktree.py` wrote its first fields; keep them). It ends up like:
+6. `Compose files:` = the `-f` files you use to start this branch's containers (space-separated, relative to the code root), e.g. `docker-compose.yml docker-compose.dev.yml`. Start containers only with `docker compose -p <Compose project> -f <each file> up -d`.
+7. Complete `docs/features/BTRC-<n>/state.md` in the code root (`worktree.py` wrote its first fields; keep them). It ends up like:
     ```markdown
     Ticket: BTRC-1234
     Title: add CSV export to entities
@@ -102,7 +101,6 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
     Worktree mode: worktree
     Compose project: btrc-1234
     Compose files: docker-compose.yml
-    Beatrice skill:
     Test database:
     Commit title:
     MR title:
@@ -129,9 +127,8 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
     - <DD/MM/YYYY HH:MM> setup done on <Base>
     ```
     - `Compose project` = `btrc-<n>` (lowercase).
-    - Beatrice gets only: "Use the `beatrice-code-review` skill to review the branch <Branch> against <Base>. Write down your comments." No description, no spec, no format instructions. Optional field `Beatrice tools: <--allowedTools value>` overrides the default read-only tool list (keep `Agent` and `Skill` in it).
     - Leave `Slices:` and `Session:` empty; later steps fill them. Set `Phase: EXPLORE` last.
-9. In the code root, show the output of `git status` and `git worktree list`.
+8. In the code root, show the output of `git status` and `git worktree list`.
 
 ## E. Explore (Phase: EXPLORE)
 1. Start 3 `explorer` agents **in one message** (parallel). Same prompt for each, only `n` differs:
@@ -155,7 +152,6 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 2. **Frontend scope** (only when `- Touches frontend: yes`, and then always): the first batch also asks the frontend questions of the grill skill (§ Frontend scope): a frontend (Playwright) reviewer, a Playwright video of the feature, and an HTML preview of the design with options. All three are always suggested, recommended yes, and are `no` only when the user says they don't want them; and, if the reviewer or the video is yes, how to run the app (dev server, URL, backend mocked or local docker stack, login). Write the answers under `## Frontend`. Test credentials come only from the project's seed/fixture files (record the file path) or from the user; never put a password in state.md.
 3. **HTML preview** (only when `- HTML preview: yes`): before the spec, load the `html-mockups` skill and write `docs/features/<Ticket>/mockups/<screen>.html` for each new or changed screen, dialog or component, with **2–3 design options** each for the user to choose from (plain HTML/CSS, no CDN, light/dark toggle, RTL toggle, empty/loading/error states). Tell the user the paths and ask for changes in the next grill round. Repeat until they approve the mockups.
 4. Every inconsistency `I-n` must end as a decision.
-5. Ask for the path of Beatrice's skill here if setup didn't find it.
 6. It ends when `grill-notes.md` has no open or assumed unknowns and the user confirmed the readback. Set `Phase: SPEC`.
 
 ## P. Spec, plan, approval (Phase: SPEC)
@@ -176,7 +172,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    - `Files:` lists every file the slice may change. No other headers inside a slice.
    - Test files are not listed here (they come from test-plan.md).
 3. Run the write-spec self-check. Fix what fails.
-4. Check `## Commands`, `## Frontend`, `Compose files` and `Beatrice skill` in state.md are final.
+4. Check `## Commands`, `## Frontend` and `Compose files` in state.md are final.
 5. Approval is your **last question**. Show: goal, number of REQs/ECs/slices, every `NEW` pattern, the riskiest decision, the paths of spec.md and plan.md (and the mockups). Ask with `AskUserQuestion`: "Approve the spec and plan?" → "Approve and start (Recommended)" / "I have changes". On changes: edit, ask again.
 6. On approval, set in state.md: `Approved: yes`, `Phase: BUILD`, `Slice: 1`, `Slices: <number of slices>`, `Tries: 0`. Set `Status: APPROVED (<DD/MM/YYYY>)` in spec.md and plan.md.
 7. From now on: no questions. The Stop hook will refuse to let you stop until Status is DONE or BLOCKED, and tells you the next step.
@@ -223,48 +219,45 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>
    ```
    It runs lint, typecheck, tests, changed-line coverage, scope and suppression checks.
-2. Exit 0: it set the next phase. Normally `Phase: GATE-B` (go to GB). After round 5 was triaged it sets `Phase: VIDEO` (when `- Video: yes`) or `Phase: FINISH`.
+2. Exit 0: it set the next phase. Normally `Phase: GATE-B` (go to GB). After round 3 was triaged it sets `Phase: VIDEO` (when `- Video: yes`) or `Phase: FINISH`.
 3. Exit 1: fix every item, run again. Uncovered lines → a test (add its row first) or an exemption with a reason.
 4. Exit 2: setup error (`## Commands` missing, a coverage command without `--include-untracked`, the feature can't be found, git failed, or another run is still going). Fix the cause, run again.
 
 ## GB. Gate B, the review round (Phase: GATE-B), round = `Round`
-1. If `review/triage.md` already has `## Round <Round>`, this round is triaged: skip to step 6.
-2. Start the round's reviews **in one message** (they run in parallel):
-   - Unless `review/beatrice-<Round>.md` exists: Beatrice **in the background** (Bash `run_in_background: true`):
-     ```
-     python3 "$HOME/.claude/scripts/run_beatrice.py" <Ticket> <Round>
-     ```
-     Exit 1: both runs failed; run it again (the script blocks after 3 failures). Exit 2: setup error; fix the cause, run again.
-   - The `conventions-reviewer` agent, with: feature directory, code root, `Base`, round. It writes `review/conventions-<Round>.md`.
-   - The `playwright-reviewer` agent, only when `- Playwright reviewer: yes` and
-     ```
-     python3 "$HOME/.claude/scripts/review_round.py" playwright-needed <Ticket> <Round>
-     ```
-     prints `yes` (round 1, or frontend files changed since its last run). Give it: feature directory, code root, round, and the `## Frontend` answers (plus the test password if the user typed it; never write it to a file). It writes `review/playwright-<Round>.md`.
-3. When all have finished, before fixing anything, store the reviewers' findings with their flagged lines:
+Five reviewers look at the branch, each for one kind of problem; a verifier then checks every finding. You fix what is real. Up to 3 rounds.
+`<scripts>` below is `$HOME/.claude/scripts`.
+
+1. If `python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>` passes, this round is triaged: skip to step 6.
+2. **Reviewers.** `python3 "<scripts>/review_round.py" expected <Ticket> <Round>` lists them: `correctness`, `conventions`, `tests`, `spec`, and `playwright` when `- Playwright reviewer: yes`. In **one message**, start the agent `<source>-reviewer` for every one whose `review/<source>-<Round>.md` is missing or has no `Done:` line, all at once (up to 5). Give each: feature directory, code root, `Base`, round. The `playwright-reviewer` also gets the `## Frontend` answers (plus the test password if the user typed it; never write it to a file).
+   Each writes `review/<source>-<Round>.md`: `## <id> | <file:line> | <rule>` per finding (ids `K` correctness, `C` conventions, `T` tests, `S` spec, `P` playwright, e.g. `K1-3`), ending with `Done: <k> finding(s)`. Each prompt says what that reviewer does not judge, so they don't overlap.
+3. **As each reviewer finishes** (don't wait for the others), check and store its file before anything changes:
    ```
-   python3 "$HOME/.claude/scripts/review_round.py" capture <Ticket> <Round>
+   python3 "<scripts>/review_round.py" capture <Ticket> <Round> --source <source>
    ```
-4. Read every source: `review/beatrice-<Round>.md` (findings `## R<round>-<i> | <2/2 or 1/2> | <file:line> | <rule>`), `review/conventions-<Round>.md` (`## C<round>-<i> | <file:line> | <rule>`) and `review/playwright-<Round>.md` (`## P<round>-<i> | <file:line> | <rule>`).
-5. **Map every problem first, then fix.** Don't fix anything while you read. For every finding, open the code and check it yourself. A Beatrice 1/2 counts as much as 2/2. A finding marked "Dismissed in round N, because …" keeps that decision unless the line changed. Append to `review/triage.md` (the `#` column is the finding's id, the Source column says who reported it):
+   Exit 1 (missing file, no `Done:` line, a count that doesn't match, a header that isn't a finding): start that reviewer again. 3 failures in a row block the feature. Exit 0: when it found something, start a **`finding-verifier`** for that source right away, with feature directory, code root, `Base`, round and the source. It writes `review/verify-<source>-<Round>.md`: `## <id> | sure|unsure|invalid` per finding, with evidence. When it finishes, run
+   ```
+   python3 "<scripts>/review_round.py" verify-check <Ticket> <Round> --source <source>
+   ```
+   Exit 1: start that verifier again (3 failures block). A source with `Done: 0 finding(s)` needs no verifier.
+4. **Triage**, once every expected source is captured and verified. Don't fix anything yet. Append to `review/triage.md` one row per finding (Verdict = the verifier's word; a finding marked "Dismissed in round N, because …" keeps that decision unless the line changed):
    ```markdown
    ## Round <Round>
-   | # | Source | Marks | File:line | Rule | Finding | Decision | Reason |
+   | # | Source | Verdict | File:line | Rule | Finding | Decision | Reason |
    |---|---|---|---|---|---|---|---|
-   | R1-1 | beatrice | 2/2 | services/evermore/app/x.py:40 | PY-03 | missing None check | fix | |
-   | C1-2 | conventions | - | services/evermore/app/x.py:52 | PY-24 | call not exploded | fix | |
-   | P1-1 | playwright | - | frontend/src/views/entities/EntityList.vue:30 | VU-52 | text unreadable in dark theme | dismiss | screenshot shows the theme class is applied; flaky render |
+   | K1-1 | correctness | sure | services/evermore/app/x.py:40 | EC-2 | missing None check | fix | |
+   | C1-2 | conventions | invalid | services/evermore/app/x.py:52 | PY-24 | call not exploded | dismiss | verifier: the call fits on one line under 80 chars |
+   | T1-1 | tests | unsure | services/evermore/tests/x/test_y.py:12 | TS-29 | reads with the reader | fix | |
    ```
-   `dismiss` needs a Reason pointing to a line, a rule or a screenshot. No `|` inside a cell. Marks is `-` for conventions and playwright.
-   When the table is complete, check nothing is missing:
-   ```
-   python3 "$HOME/.claude/scripts/review_round.py" triage-check <Ticket> <Round>
-   ```
-   Exit 1 lists the findings without a row: add them, run it again. Exit 0: now fix **every** `fix` row, one after another, then run the checks once.
-6. Next (the round rules count every source together):
+   - `sure` → Decision **fix**. Always.
+   - `invalid` → Decision **dismiss**, Reason = the verifier's evidence. Never fix it.
+   - `unsure` → open the code and decide yourself: `fix`, or `dismiss` with a Reason pointing to a line, a rule or a screenshot.
+   No `|` inside a cell. Then run `python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>`: exit 1 lists what's missing or doesn't follow the verdict; fix the table and run it again.
+5. **Fix** every `fix` row, one after another, then run the checks once.
+6. Next:
    - No `fix` rows this round → set `Phase: VIDEO` when `- Video: yes`, else `Phase: FINISH`.
-   - `fix` rows and `Round` < 5 → fix them all, then set `Round: <Round+1>` and `Phase: GATE-A`.
-   - `fix` rows and `Round` = 5 → fix them, keep `Round: 5`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`. Leftovers go into the summary.
+   - `fix` rows and `Round` < 3 → fix them all, then set `Round: <Round+1>` and `Phase: GATE-A`.
+   - `fix` rows and `Round` = 3 → fix them, keep `Round: 3`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`. Leftovers go into the summary.
+   A dropped connection mid-round: start again at step 1; reviewers and verifiers whose files are complete aren't run again.
 
 ## V. Video (Phase: VIDEO)
 1. Record one Playwright run with `recordVideo` that walks the new behaviour step by step (every frontend REQ in order), with `page.waitForTimeout(800)` pauses so it can be followed. Start the app as in `## Frontend`, use the repo's own Playwright (`npx playwright`, browsers preinstalled; never download), and keep the script in `docs/features/<Ticket>/playwright/video.cjs` (never in the repo's test folders). The `playwright-reviewer` agent's file layout is the model.
@@ -303,7 +296,7 @@ Stay in the code root (the worktree) for this step.
    ## Tests
    - <n> tests · changed-line coverage: <result> · exemptions: <list or none>
    ## Reviews
-   | Round | # | Source | Marks | File:line | Finding | Outcome (fixed / dismissed: reason / left open) |
+   | Round | # | Source | Verdict | File:line | Finding | Outcome (fixed / dismissed: reason / left open) |
    ## Video
    - docs/features/<Ticket>/video/<Ticket>.webm (or: not recorded, because …; or: not requested)
    ## Finish

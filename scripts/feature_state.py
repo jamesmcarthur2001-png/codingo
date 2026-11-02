@@ -541,7 +541,7 @@ def running_marker(feature_directory: Path, step: str) -> Iterator[None]:
     Mark a long step as running, so the Stop hook lets the orchestrator wait and a second run refuses to start.
 
     :param feature_directory: The feature's directory.
-    :param step: What is running, e.g. `beatrice round 2`.
+    :param step: What is running, e.g. `gate a`.
     :raises StepAlreadyRunningError: When another long step of this feature is still running.
     """
     already_running = running_step(feature_directory)
