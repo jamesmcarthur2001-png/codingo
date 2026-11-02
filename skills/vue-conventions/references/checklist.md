@@ -45,6 +45,7 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 
 ## Styling
 - [ ] VU-16 (auto) No hard-coded colors (hex, literal `rgb()`/`hsl()`, named colors, Vuetify palette colors, Tailwind color classes). Colors come only from the theme in `vuetify.ts`.
+- [ ] VU-61 Every color changes with the theme: no color, and no theme key, keeps the same value in light and dark (brand colors excepted)
 - [ ] VU-52 Visual changes work in light and dark themes: text uses theme color classes (`text-entryText`), surfaces and borders use Vuetify color tokens
 - [ ] VU-53 Spacing is RTL-safe: `ms-*`/`me-*`/`ps-*`/`pe-*`, never `ml-*`/`mr-*`/`pl-*`/`pr-*`
 - [ ] VU-54 `w-full` / `h-full`, never `w-[100%]` / `h-[100%]`; `rem` for fonts

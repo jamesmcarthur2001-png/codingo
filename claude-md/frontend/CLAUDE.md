@@ -7,7 +7,8 @@ Full rules: the vue-conventions skill. The ones that matter most:
   included, goes in <script setup>: emits/props, constants, refs, computed, functions, watchers, hooks.
 - Spacing: ms/me/ps/pe only, never ml/mr/pl/pr (RTL).
 - Colors: Vuetify theme classes for text (text-entryText), Vuetify tokens for surfaces and borders,
-  never hex/rgb. Check light and dark.
+  never hex/rgb. Always a theme color: never one color that stays the same when the theme changes.
+  A new theme key gets a value in both light and dark. Switch the theme and check.
 - Tailwind only, no d-flex/d-block. w-full/h-full, not w-[100%]. flex for sizing, rem for fonts, else vh/vw/%.
 - No any; unknown + narrowing when the shape is truly unknown. === / !== only.
   Explicit checks: val !== null && val !== undefined, str.trim().length === 0, arr.length === 0.
