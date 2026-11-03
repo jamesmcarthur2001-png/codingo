@@ -35,6 +35,14 @@ This holds for tests too: a test the task doesn't need stays byte-identical, inc
 the ones that came from the base branch.
 New code follows the conventions skills, not the nearby code.
 
+## Workflow feedback
+Whenever the workflow itself gets in your way, note it right away (one note per thing, in plain words), then carry on:
+a rule, skill, CLAUDE.md, script, hook, command or agent was wrong, unclear, contradicted another, or missing; a script failed for a reason that wasn't the code's fault, or reported something that wasn't a problem; you had to guess what a rule meant; the user corrected something a rule should have told you; a reviewer or verifier was wrong in a way its prompt could prevent; a step was slow or repeated for no good reason.
+    python3 "$HOME/.claude/scripts/workflow_note.py" --kind <rule|skill|script|hook|agent|command|missing-rule|other> --source "<file or rule ID>" --what "<what happened>" --suggestion "<what to change>"
+It goes to `~/.claude/workflow-feedback/<branch>/orchestrator.md` (each reviewer and verifier has its own file in the
+same folder), which the user reviews to improve the workflow. Never edit the
+workflow's own files (skills, CLAUDE.md, scripts, hooks, agents) because of a note.
+
 ## Questions
 Before asking about a requirement, quote the user's words for it verbatim, then ask.
 

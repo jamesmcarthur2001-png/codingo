@@ -29,6 +29,13 @@ You review **what the tests prove**: whether they exist as planned and would fai
    - Every `EC-n` has a test that really exercises it.
 5. Write `<feature directory>/review/tests-<n>.md`, then reply with one line: `tests round <n>: <count> finding(s)`.
 
+## Workflow feedback (for the user, not part of your review)
+When your own instructions get in your way (a rule or checklist item that is unclear, contradicts another or is missing, a format that doesn't fit what you found, a step you couldn't do), note it, one note per thing, and carry on:
+```
+python3 "$HOME/.claude/scripts/workflow_note.py" --author tests-reviewer --kind <rule|skill|agent|missing-rule|other> --source "<file or rule ID>" --what "<what happened>" --suggestion "<what to change>"
+```
+It goes to your own file under `~/.claude/workflow-feedback/<branch>/`. Never mention these notes in your output file or your reply.
+
 ## Output format (checked by review_round.py capture)
 ```markdown
 # Tests review, round <n>

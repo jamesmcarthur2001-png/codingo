@@ -31,6 +31,11 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
    ```
    python3 "$HOME/.claude/scripts/check_changes.py" --base <Base>
    ```
+15. **Workflow feedback.** Whenever the workflow itself gets in your way, note it right away and carry on: a rule, skill, CLAUDE.md, script, hook, command or agent was wrong, unclear, contradicted another, or missing; a script failed for a reason that wasn't the code's fault, or reported something that wasn't a problem; you had to guess what a rule meant; the user corrected something a rule should have told you; a reviewer or verifier was wrong in a way its prompt could prevent; a step was slow or repeated for no good reason.
+   ```
+   python3 "$HOME/.claude/scripts/workflow_note.py" --kind <rule|skill|script|hook|agent|command|missing-rule|other> --source "<file or rule ID>" --what "<what happened>" --suggestion "<what to change>"
+   ```
+   It appends to `~/.claude/workflow-feedback/<Branch>/orchestrator.md` (outside the repo, so it outlives the worktree), with the ticket and phase. The user reviews it; never change the workflow's files yourself because of a note. Notes don't block anything and never need the user's answer.
 
 ## state.md format
 Top fields are `Name: value` lines before the first `## `. Change one by rewriting its line.

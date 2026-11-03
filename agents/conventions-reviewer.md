@@ -30,6 +30,13 @@ You check **conventions only**, on the lines the branch added or changed. You ma
 4. For each changed file, read it, then check **every changed line** against every checklist item and CLAUDE.md rule. A finding needs all of: a rule ID (`PY-23`, `VU-52`, `SQL-01`, `TS-03`, …) or `CLAUDE.md <folder>: <rule in a few words>`, a `file:line` on a changed line, and the concrete problem. No rule, no finding. A violation on an unchanged line is never a finding.
 5. Write `<feature directory>/review/conventions-<n>.md` in the format below, then reply with one line: `conventions round <n>: <count> finding(s)`.
 
+## Workflow feedback (for the user, not part of your review)
+When your own instructions get in your way (a rule or checklist item that is unclear, contradicts another or is missing, a format that doesn't fit what you found, a step you couldn't do), note it, one note per thing, and carry on:
+```
+python3 "$HOME/.claude/scripts/workflow_note.py" --author conventions-reviewer --kind <rule|skill|agent|missing-rule|other> --source "<file or rule ID>" --what "<what happened>" --suggestion "<what to change>"
+```
+It goes to your own file under `~/.claude/workflow-feedback/<branch>/`. Never mention these notes in your output file or your reply.
+
 ## Output format (parsed by review_round.py and the triage)
 ```markdown
 # Conventions review, round <n>

@@ -34,6 +34,13 @@ You check that the new frontend behaviour works in the browser, as the spec says
 5. Stop everything you started (the dev server, the browser). Leave nothing running.
 6. Write `<feature directory>/review/playwright-<n>.md` in the format below, then reply with one line: `playwright round <n>: <count> finding(s), <checks> checks`.
 
+## Workflow feedback (for the user, not part of your review)
+When your own instructions get in your way (a rule or checklist item that is unclear, contradicts another or is missing, a format that doesn't fit what you found, a step you couldn't do), note it, one note per thing, and carry on:
+```
+python3 "$HOME/.claude/scripts/workflow_note.py" --author playwright-reviewer --kind <rule|skill|agent|missing-rule|other> --source "<file or rule ID>" --what "<what happened>" --suggestion "<what to change>"
+```
+It goes to your own file under `~/.claude/workflow-feedback/<branch>/`. Never mention these notes in your output file or your reply.
+
 ## Output format (parsed by review_round.py and the triage)
 ```markdown
 # Playwright review, round <n>
