@@ -24,8 +24,8 @@ Full rules: the vue-conventions skill. The ones that matter most:
   carries not_found.svg.
 - Naming: modal components are XModal.vue, not XDialog.vue. A component or util named for a shared concept carries
   its owner's prefix.
-- A string becomes a constant only when it's used in more than one place; critical keys (storage, header, event,
-  permission keys) always do. Other strings stay inline, whatever their length.
+- A string becomes a constant only when it's a long sentence (6+ words) used in more than one place, or a key
+  (storage, header, event, permission, payload keys). Everything else stays inline, error messages included.
 - Page sizes: what one page shows (usually 10–25).
 - Frontend changes: a video of the new behaviour is suggested at the end of /feature, unless the user doesn't want it.
 - No eslint-disable, @ts-ignore, @ts-expect-error. Fix the code instead.

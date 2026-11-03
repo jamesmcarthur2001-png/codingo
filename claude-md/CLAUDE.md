@@ -73,7 +73,7 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   is fine: each function and each model stays readable on its own.
 - Never generate a model's fields with a function; write each field in the model.
 - One migration per branch: when the schema changes again, update the branch's migration, never add a second.
-- String constants: none by length in the backend; only critical keys (see below) are constants.
+- String constants in the backend: only keys (see below). Never an error message or anything raised.
 - No `# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore` or `# pragma: no cover`. Fix the code.
   The one exception: a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`.
 
@@ -83,8 +83,11 @@ variable name, or move the step into a function whose name says what it does.
 
 ## Frontend
 - No `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the code.
-- A string becomes a constant only when it's used in more than one place; otherwise it stays inline.
+- A string becomes a constant only when it's a long sentence (6+ words) used in more than one place, or a key.
+  Everything else stays inline, error messages included.
 
-## Critical keys, everywhere
+## Keys are constants, everywhere
 Keys that must match in several places (storage and cache keys, header names, queue and routing keys, event names,
-permission names) are constants, in the backend and in the frontend.
+permission names, the keys of a dictionary one service sends another) are constants, in the backend and in the
+frontend. Each service keeps its own constant for each key it shares, so it's easy to change. Error messages and
+what you raise are never constants.

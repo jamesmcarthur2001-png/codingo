@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, .env configuration, string constants (critical keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
+description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, .env configuration, string constants (keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
 ---
 
 # Python Backend Conventions
@@ -449,8 +449,9 @@ class SiteInput(BaseModel):
 
 ## 9. String Constants
 
-- **No string constants by length in the backend.** Messages, SQL, templates and other text stay inline where they're used, whatever their length. (The frontend makes a string a constant when it's used in more than one place, see `vue-conventions` §7.)
-- **Critical keys are constants**, in the backend and in the frontend: strings that must match exactly in several places or across services, such as storage and cache keys, header names, queue names and routing keys, event names, and permission or role names. Define each one once, in the `Consts` section of the module that owns it (or a shared consts module when several services use it).
+- **Keys are constants**, in the backend and in the frontend: strings that must match exactly in several places or across services, such as storage and cache keys, header names, queue and routing keys, event names, permission names, and the keys of a dictionary one service sends another. When one service passes a dictionary to another microservice, **each service keeps its own constant for each key**, in the `Consts` section of the module that uses it, because it's used several times and must be easy to change.
+- **No other string is a constant in the backend.** Messages, SQL, templates and other text stay inline where they're used, whatever their length.
+- **Never a constant for an error message**, or anything passed to `raise`: it's read in place.
 - **Settings stay inline**: settings keys and values are read in place.
 - **Strings in tests are never constants.**
 

@@ -70,7 +70,7 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 - [ ] VU-35 (auto) No `void` before function calls
 - [ ] VU-36 (auto) Component state is a `ref`, not a reassigned `let`
 - [ ] VU-37 Behavior that depends on a type or key is an object/`Record` lookup, not a chain of `if`s per type
-- [ ] VU-22 (auto for single-use string constants) No magic numbers in template or script; a string used in more than one place is one named constant, critical keys (storage, cache, header, event, permission keys) are constants, and no other string is a constant
+- [ ] VU-22 (auto for string constants) No magic numbers in template or script; a long sentence (6+ words) used in more than one place is one named constant, keys (storage, cache, header, event, permission, payload keys) are constants, error messages are never constants, and no other string is a constant
 - [ ] VU-60 Lists request a realistic page size (what one page shows, usually 10–25)
 - [ ] VU-23 Names are descriptive (no `data`, `item`, `load`)
 - [ ] VU-40 (auto) No comments (`//`, `/* */`, `<!-- -->`, JSDoc) in script, template, or style

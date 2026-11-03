@@ -26,7 +26,7 @@ type Mode = 'list' | 'grid'
 <script setup lang="ts">
 const props = defineProps<Props>()
 
-const SHARED_MESSAGE = 'Nothing to show yet'
+const SHARED_MESSAGE = 'Nothing to show here yet, add one'
 const STORAGE_KEY = 'entities-view'
 
 const isLoading = ref<boolean>(false)
@@ -67,6 +67,7 @@ def test_check_vue_file_compliant_component_has_no_violations(tmp_path: Path):
 @pytest.mark.parametrize("old,new,expected_rule_id", [
     ("type Mode = 'list' | 'grid'", "const PAGE_SIZE = 20", "VU-05"),
     ("const STORAGE_KEY = 'entities-view'", "const SAVE_LABEL = 'Save the entity now'", "VU-22"),
+    ("const SHARED_MESSAGE = 'Nothing to show here yet, add one'", "const SHARED_MESSAGE = 'Nothing yet'", "VU-22"),
     ("const isLoading = ref<boolean>(false)", "let isLoading = false", "VU-36"),
     ("text-entryText bg-surface", "text-gray-500", "VU-16"),
     ("<v-select :items=\"items\">", "<v-select color=\"red\" :items=\"items\">", "VU-16"),

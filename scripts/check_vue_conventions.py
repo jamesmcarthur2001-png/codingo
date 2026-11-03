@@ -3,7 +3,7 @@
 Checks Vue single-file components against the house conventions eslint and vue-tsc can't see.
 
 Usage: python3 check_vue_conventions.py <file.vue> [...]
-Reports, with the rule ID: values in `<script lang="ts">` (VU-05), a string constant used once (VU-22), colors that
+Reports, with the rule ID: values in `<script lang="ts">` (VU-05), a string constant that isn't a key or a duplicated 6+ word sentence (VU-22), colors that
 don't come from the theme (VU-16), `w-[100%]` / `h-[100%]` and font sizes in px (VU-54), px sizes (VU-18), Vuetify
 `d-*` display classes (VU-43), and component state in a `let` (VU-36). Comments are checked by line_checks.py (VU-40).
 Exit codes: 0 no violations, 1 violations found.
@@ -31,9 +31,10 @@ TYPE_DECLARATION_PATTERN = re.compile(
     r"^(?:interface\s|type\s|enum\s|const\s+enum\s|import\s+type\s|declare\s)",
 )
 STRING_CONSTANT_PATTERN = re.compile(
-    r"^const\s+(?P<name>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[A-Z]{2,})\s*(?::\s*string\s*)?=\s*(?P<quote>['\"`])",
+    r"^const\s+(?P<name>[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[A-Z]{2,})\s*(?::\s*string\s*)?=\s*(?P<quote>['\"`])(?P<value>.*?)(?P=quote)",
 )
-CRITICAL_KEY_WORDS = ("KEY", "HEADER", "EVENT", "PERMISSION", "ROLE", "STORAGE", "CACHE", "QUEUE", "ROUTE")
+MIN_SENTENCE_WORDS = 6
+KEY_NAME_WORDS = ("KEY", "HEADER", "EVENT", "PERMISSION", "ROLE", "STORAGE", "CACHE", "QUEUE", "ROUTE")
 COLOR_NAMES = (
     "slate|gray|grey|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet"
     "|purple|fuchsia|pink|rose|black|white|brown|deep-purple|light-blue|light-green|deep-orange|blue-grey"
@@ -206,20 +207,22 @@ def check_setup_block(path: Path, lines: list[str], first_line: int, last_line: 
             continue
 
         name = constant_match.group("name")
-        is_critical_key = any(word in name.split("_") for word in CRITICAL_KEY_WORDS)
+        is_key = any(word in name.split("_") for word in KEY_NAME_WORDS)
         uses = len(
             re.findall(
                 rf"(?<![\w$]){re.escape(name)}(?![\w$])",
                 whole_file,
             ),
         ) - 1
-        if uses <= 1 and not is_critical_key:
+        words = len(constant_match.group("value").split())
+        is_duplicated_sentence = words >= MIN_SENTENCE_WORDS and uses > 1
+        if not is_key and not is_duplicated_sentence:
             violations.append(
                 Violation(
                     path,
                     line_number,
                     "VU-22",
-                    f"'{name}' is used {uses} time(s): a string becomes a constant only when it's used in more than one place. Inline it.",
+                    f"'{name}' ({words} word(s), used {uses} time(s)): a string is a constant only when it's a key, or a sentence of {MIN_SENTENCE_WORDS}+ words used in more than one place. Inline it.",
                 ),
             )
 
