@@ -4,7 +4,7 @@ Applies to code you write or change. Never to unchanged lines.
 
 Run this per changed `.vue` / `.ts` file. Every item must be answered ✅, ❌ (with `file:line`), or N/A.
 
-In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run eslint and the suppression check on the changed lines only; copy their result where it covers an item. Items marked (auto) are mechanical: when no tool reported them, check them by hand. Judge only lines the branch added or changed.
+In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run eslint, `check_vue_conventions.py` (VU-05, VU-16, VU-18, VU-22 string constants, VU-36, VU-43, VU-54), the comment check (VU-40) and the suppression check on the changed lines only; copy their result where it covers an item. Other items marked (auto) are mechanical but have no script yet: check them by hand. Judge only lines the branch added or changed.
 
 ## Architecture
 - [ ] VU-01 Components are small and focused: genuinely reusable parts are extracted, and oversized components are split
@@ -19,7 +19,7 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 
 ## SFC structure
 - [ ] VU-04 Block order is `<template>` (one wrapper element), then `<script lang="ts">`, then `<script setup lang="ts">`, then `<style>` (only if needed)
-- [ ] VU-05 `<script lang="ts">` holds only types (interfaces incl. `Props`/`Emits`, type aliases, enums); everything else, constants included, is in `<script setup>`
+- [ ] VU-05 (auto) `<script lang="ts">` holds only types (interfaces incl. `Props`/`Emits`, type aliases, enums); everything else, constants included, is in `<script setup>`
 - [ ] VU-06 `<script setup>` order is emits/props, then constants, then refs, then computed, then const functions, then function declarations, then watchers, then lifecycle hooks, with single blank lines between sections
 - [ ] VU-47 Refs are explicitly typed (`ref<boolean>(false)`)
 - [ ] VU-48 Prop-driven logic uses `watch(..., { immediate: true })`, not a bare `onMounted`
@@ -33,7 +33,11 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 - [ ] VU-09 `EasyToolTip` is used, never raw `v-tooltip`
 - [ ] VU-10 Complex titles, dialogs, and config controls have an `EasyToolTip` with `mdi-information`
 - [ ] VU-11 Every async operation shows a loading state (spinner, button `:loading`, progress, skeleton)
-- [ ] VU-49 Every list or async view has an empty state with a clear message
+- [ ] VU-49 Every list or async view has an empty state with a clear message: `<template #empty>` with a fixed small height inside a select or scroll list; `not_found.svg` on an empty tab or page
+- [ ] VU-62 Every async load in a component goes through `useLoadableResource` or `useInfiniteListLoadableResourceWithFunction`; no hand-rolled `isLoading` + `try`/`catch` + offsets; no new loadable variant without asking
+- [ ] VU-63 A page function maps every record to exactly one row; no filtering inside it (filter on the server or after the page is in memory)
+- [ ] VU-64 Every field the service rejects when blank is `required` with `:rules` in the create and edit form
+- [ ] VU-65 Modal content components are `XModal.vue`, not `XDialog.vue`; a component or util for a shared concept carries its owner's prefix
 - [ ] VU-50 Independent loads are batched with `Promise.all`
 - [ ] VU-12 Search and filter loading is debounced, with the delay as a named constant
 - [ ] VU-13 Long, paginated or lazy lists use the infinite list / generic loadable resource (`v-infinite-scroll`)
@@ -48,11 +52,11 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 - [ ] VU-61 Every color changes with the theme: no color, and no theme key, keeps the same value in light and dark (brand colors excepted)
 - [ ] VU-52 Visual changes work in light and dark themes: text uses theme color classes (`text-entryText`), surfaces and borders use Vuetify color tokens
 - [ ] VU-53 Spacing is RTL-safe: `ms-*`/`me-*`/`ps-*`/`pe-*`, never `ml-*`/`mr-*`/`pl-*`/`pr-*`
-- [ ] VU-54 `w-full` / `h-full`, never `w-[100%]` / `h-[100%]`; `rem` for fonts
+- [ ] VU-54 (auto) `w-full` / `h-full`, never `w-[100%]` / `h-[100%]`; `rem` for fonts
 - [ ] VU-17 New semantic states get a new theme key (existing keys aren't reused for a different meaning)
-- [ ] VU-18 No `px` for layout sizing. Uses flex, or `rem`/`vh`/`vw` when sizing is required.
+- [ ] VU-18 (auto) No `px` for layout sizing. Uses flex, or `rem`/`vh`/`vw` when sizing is required.
 - [ ] VU-19 Tailwind utilities are preferred, and scoped CSS appears only when Tailwind/Vuetify can't express the style
-- [ ] VU-43 No `d-flex` or `d-block`: Tailwind's `flex` and `block`
+- [ ] VU-43 (auto) No `d-flex` or `d-block`: Tailwind's `flex` and `block`
 
 ## Clean code
 - [ ] VU-20 No loose truthy/falsy checks on non-booleans, in script and in templates (`v-if`, `v-show`, ternaries): explicit `=== null`/`=== undefined`, `.length === 0`, `=== 0`
@@ -64,9 +68,9 @@ In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run
 - [ ] VU-34 Choosing which function to call (or whether to call one) uses a full `if` / `else`, never a ternary
 - [ ] VU-44 Early returns: a loop body that is one `if` inverts it and `continue`s; a function body that is one `if` inverts it and `return`s
 - [ ] VU-35 (auto) No `void` before function calls
-- [ ] VU-36 Component state is a `ref`, not a reassigned `let`
+- [ ] VU-36 (auto) Component state is a `ref`, not a reassigned `let`
 - [ ] VU-37 Behavior that depends on a type or key is an object/`Record` lookup, not a chain of `if`s per type
-- [ ] VU-22 No magic numbers in template or script; a string used in more than one place is one named constant, critical keys (storage, cache, header, event, permission keys) are constants, and no other string is a constant
+- [ ] VU-22 (auto for single-use string constants) No magic numbers in template or script; a string used in more than one place is one named constant, critical keys (storage, cache, header, event, permission keys) are constants, and no other string is a constant
 - [ ] VU-60 Lists request a realistic page size (what one page shows, usually 10–25)
 - [ ] VU-23 Names are descriptive (no `data`, `item`, `load`)
 - [ ] VU-40 (auto) No comments (`//`, `/* */`, `<!-- -->`, JSDoc) in script, template, or style

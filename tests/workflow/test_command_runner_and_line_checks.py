@@ -156,3 +156,39 @@ def test_collect_frontend_comment_problems_ignores_code_that_only_looks_like_one
     problems = collect_frontend_comment_problems(path, LineFilter(whole_file=True))
 
     assert problems == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "# pylint: disable=duplicate-code\ndef export_rows():\n    return []\n",
+        "# pylint: disable=duplicate-code\nclass EntityExporter:\n    pass\n",
+        "    # pylint: disable=duplicate-code\n    @staticmethod\n    def export_rows():\n        return []\n",
+    ],
+)
+def test_collect_suppression_problems_allows_duplicate_code_right_above_a_definition(tmp_path: Path, source: str):
+    path = tmp_path / "exporter.py"
+    path.write_text(source, encoding="utf-8")
+
+    problems = collect_suppression_problems(path, LineFilter(whole_file=True))
+
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def export_rows():\n    # pylint: disable=duplicate-code\n    return []\n",
+        "# pylint: disable=duplicate-code\n\ndef export_rows():\n    return []\n",
+        "# pylint: disable=too-many-locals\ndef export_rows():\n    return []\n",
+        "rows = export_rows()  # pylint: disable=duplicate-code\n",
+        "# pylint: enable=duplicate-code\n",
+    ],
+)
+def test_collect_suppression_problems_refuses_every_other_pylint_form(tmp_path: Path, source: str):
+    path = tmp_path / "exporter.py"
+    path.write_text(source, encoding="utf-8")
+
+    problems = collect_suppression_problems(path, LineFilter(whole_file=True))
+
+    assert len(problems) == 1

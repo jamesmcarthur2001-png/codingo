@@ -4,7 +4,7 @@ Monorepo:
 - `evermore`: the CRUD service. Validation of real data happens here.
 - `twilight`: the reverse proxy in front of the services.
 - `midnight_models`: shared models only.
-- `frontend`: Vue 3 + Vuetify + TypeScript + Tailwind.
+- `web/sunrise`: the frontend, Vue 3 + Vuetify + TypeScript + Tailwind.
 
 Each of these folders has its own CLAUDE.md with its rules; it loads when you work there.
 Detailed conventions are in the skill for the language or test layer you're working in:
@@ -31,6 +31,8 @@ vitest-conventions, browser-test-conventions.
 ## Scope
 Change existing lines only when the task needs them changed, even in a file you're editing:
 no renaming, reformatting, retyping or reordering of code that already breaks the conventions.
+This holds for tests too: a test the task doesn't need stays byte-identical, including another module's tests and
+the ones that came from the base branch.
 New code follows the conventions skills, not the nearby code.
 
 ## Questions
@@ -49,16 +51,20 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   several services are joined by a comma and a space: `feat(evermore, frontend): add CSV export`.
 - MR title: the same plus ` (BTRC-<n>)`. Several tickets: join the parts with ` & `, each with its own ticket:
   `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
-- Finishing a branch: `git pull --rebase origin <base>`, push with `--force-with-lease`, then wait until the pipeline passes
-  (`glab ci status --branch <branch>`; a failed job: `glab ci trace <job> --branch <branch>`, fix, push again).
-  Only then stop the branch's containers (`docker compose -p btrc-<n> down`) and close its worktree.
+- A branch is finished only when all four hold: rebased on the latest base (`git pull --rebase origin <base>`, pushed with
+  `--force-with-lease`), the pipeline of the pushed commit passed (`glab ci status --branch <branch>`; a failed job:
+  `glab ci trace <job> --branch <branch>`, fix, push again), every container of the branch closed
+  (`docker compose -p btrc-<n> down`), and its worktree closed. Never call it done before that.
+- Before every commit to a feature branch (a pipeline fix, a quick fix, inside or outside /feature), run
+  `python3 "$HOME/.claude/scripts/check_changes.py" --base <base>` and fix what it lists.
 - Never push to the base branch. After a merge, pull the base branch.
 - `/feature` runs only when the user types it. Inside it, follow the command's own steps: its scripts do
   the git steps, and after the spec is approved it asks no questions.
 
 ## Python, every service
 - Manager methods that fetch something never start with `get_`: `entity_by_id`, `entity_by_id_raw` or
-  `entity_by_id_internal`, not `get_entity_by_id`. `get_` elsewhere is fine.
+  `entity_by_id_internal`, not `get_entity_by_id`. Dependency-injection providers and general getters that aren't SQL
+  related must start with `get_`.
 - Full years in dates: 2026, not 26.
 - Keep docstrings short: one sentence on what the function or class is for, not how it works.
   Don't narrate its steps, branches or edge cases; the code already says that. `:param:`/`:return:` lines are a few words each.
@@ -69,6 +75,7 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
 - One migration per branch: when the schema changes again, update the branch's migration, never add a second.
 - String constants: none by length in the backend; only critical keys (see below) are constants.
 - No `# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore` or `# pragma: no cover`. Fix the code.
+  The one exception: a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`.
 
 ## Comments
 Never write code comments, in any language. Needing one means the code can be simpler: give the value a clear

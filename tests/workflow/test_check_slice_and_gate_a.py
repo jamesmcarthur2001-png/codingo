@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import check_changes
 import check_slice
 import gate_a
 from conftest import FakeCommands, failed, git, ok
@@ -423,3 +424,32 @@ def test_check_slice_renamed_file_lists_the_old_path_as_out_of_scope(
 
     assert exit_code == 1
     assert "- app/legacy.py" in capsys.readouterr().out
+
+
+def test_check_changes_reports_a_comment_on_a_changed_line(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    entities_path = branch_feature.parent.parent.parent / "app" / "entities.py"
+    entities_path.write_text(LEGACY_SOURCE + CLEAN_ADDITION.replace("return len(entities)", "return len(entities)  # count them"), encoding="utf-8")
+
+    exit_code = run_script(check_changes, monkeypatch, "--base", "master")
+
+    output = capsys.readouterr().out
+    assert exit_code == 1
+    assert "PY-52" in output
+
+
+def test_check_changes_passes_clean_changes_and_ignores_legacy_lines(
+    branch_feature: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    entities_path = branch_feature.parent.parent.parent / "app" / "entities.py"
+    entities_path.write_text(LEGACY_SOURCE + CLEAN_ADDITION, encoding="utf-8")
+
+    exit_code = run_script(check_changes, monkeypatch, "--base", "master")
+
+    assert exit_code == 0
+    assert "You can commit" in capsys.readouterr().out

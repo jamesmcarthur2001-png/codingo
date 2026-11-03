@@ -14,6 +14,16 @@ Full rules: the vue-conventions skill. The ones that matter most:
   Explicit checks: val !== null && val !== undefined, str.trim().length === 0, arr.length === 0.
 - Every async view: loading, empty (with a message) and error states. Errors via showGlobalSnackbar, no console.log.
 - API calls only under requests/.
+- Every async load goes through useLoadableResource or useInfiniteListLoadableResourceWithFunction. No hand-rolled
+  isLoading ref + try/catch + offset bookkeeping. No new loadable variant without asking first.
+- A paged source never adds or drops rows: the page function maps every record to one row. Filtering inside it skips
+  records and ends the list early (offsets advance by page.length). Filter server-side or after the page is in memory.
+- The form mirrors the model: a field the service rejects when blank is required + :rules in the create/edit form.
+  For every new or changed endpoint, read its create model's required fields, then the form.
+- Empty areas: <template #empty> with a fixed small height inside selects and scroll lists; an empty tab or page
+  carries not_found.svg.
+- Naming: modal components are XModal.vue, not XDialog.vue. A component or util named for a shared concept carries
+  its owner's prefix.
 - A string becomes a constant only when it's used in more than one place; critical keys (storage, header, event,
   permission keys) always do. Other strings stay inline, whatever their length.
 - Page sizes: what one page shows (usually 10–25).

@@ -23,12 +23,21 @@ import sys
 from pathlib import Path
 
 from feature_state import FEATURES_DIRECTORY, FeatureNotFoundError, FeatureState, NO_WORKTREE_MODE, STATE_FILE_NAME, load_feature_state, main_checkout_of, write_active_marker, write_atomically
-from git_changes import run_git
+import command_runner
+from git_changes import is_ancestor, run_git
 from hooks.guard_branch import BranchChange, conflicting_branches
 
 # ----- Consts ----- #
 
 FAILED_EXIT_CODE = 1
+FINISH_SECTION = "Finish"
+REQUIRED_FINISH_LINES = (
+    ("- rebase: done", "the branch isn't recorded as rebased on the base (`- rebase: done` under `## Finish`)"),
+    ("- pipeline: passed", "the pipeline isn't recorded as passed (`- pipeline: passed` under `## Finish`)"),
+    ("- containers: closed", "the branch's containers aren't recorded as closed (`- containers: closed` under `## Finish`)"),
+)
+DOCKER_TIMEOUT_SECONDS = 60
+COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 SETUP_ERROR_EXIT_CODE = 2
 REMOTE = "origin"
 WORKTREES_DIRECTORY = Path(".claude") / "worktrees"
@@ -504,6 +513,96 @@ def archive_feature_folder(state: FeatureState) -> Path:
     return target
 
 
+def recorded_finish_problems(state: FeatureState) -> list[str]:
+    finish_lines = [finish_line.strip() for finish_line in state.section(FINISH_SECTION)]
+    return [
+        problem
+        for required_prefix, problem in REQUIRED_FINISH_LINES
+        if not any(finish_line.startswith(required_prefix) for finish_line in finish_lines)
+    ]
+
+
+def git_finish_problems(state: FeatureState, cwd: Path) -> list[str]:
+    """
+    Check with git that the pushed branch is the local branch and sits on top of the latest base.
+
+    :param state: The feature's state.
+    :param cwd: A checkout of the repository.
+    :return: One line per problem.
+    """
+    branch = state.field("Branch")
+    base = state.field("Base")
+    fetched = run_git(["fetch", "--quiet", REMOTE], cwd)
+    if not fetched.succeeded:
+        return [f"git fetch failed, so the rebase and the push can't be checked: {fetched.output.strip()}"]
+    problems: list[str] = []
+    if not is_ancestor(
+        f"{REMOTE}/{base}",
+        branch,
+        cwd,
+    ):
+        problems.append(
+            f"{branch} isn't rebased on the latest {REMOTE}/{base}",
+        )
+    local_head = run_git(["rev-parse", branch], cwd).stdout.strip()
+    remote_head = run_git(
+        ["rev-parse", "--verify", "--quiet", f"{REMOTE}/{branch}"],
+        cwd,
+    ).stdout.strip()
+    if remote_head != local_head:
+        problems.append(
+            f"{REMOTE}/{branch} isn't the local {branch}: push it",
+        )
+    return problems
+
+
+def container_problems(state: FeatureState, cwd: Path) -> list[str]:
+    """
+    Check that no container of the branch's compose project is still running.
+
+    :param state: The feature's state, with `Compose project:`.
+    :param cwd: Where to run docker.
+    :return: One line per problem; empty when the feature has no compose project.
+    """
+    compose_project = state.field("Compose project")
+    if compose_project == "":
+        return []
+    listed = command_runner.run_command(
+        ["docker", "ps", "--quiet", "--filter", f"label={COMPOSE_PROJECT_LABEL}={compose_project}"],
+        cwd,
+        DOCKER_TIMEOUT_SECONDS,
+    )
+    if not listed.succeeded:
+        return [f"docker ps failed, so the branch's containers can't be checked: {listed.output.strip()}"]
+    if listed.stdout.strip() != "":
+        return [f"containers of {compose_project} are still running: `docker compose -p {compose_project} down --remove-orphans`"]
+    return []
+
+
+def finish_problems(state: FeatureState, cwd: Path) -> list[str]:
+    """
+    List what keeps the feature from being DONE: rebase, pipeline and containers recorded, the push matching, no container running.
+
+    :param state: The feature's state.
+    :param cwd: A checkout of the repository.
+    :return: One line per problem; empty when the feature may be marked DONE.
+    """
+    problems = recorded_finish_problems(state)
+    problems += git_finish_problems(state, cwd)
+    problems += container_problems(state, cwd)
+    return problems
+
+
+def require_finished(state: FeatureState, cwd: Path):
+    problems = finish_problems(state, cwd)
+    if len(problems) == 0:
+        return
+    raise WorktreeError(
+        FAILED_EXIT_CODE,
+        "Not finished, so nothing was removed or marked DONE:\n" + "\n".join(f"- {problem}" for problem in problems),
+    )
+
+
 def mark_done(state: FeatureState):
     """
     Set the feature's `Status: DONE` and drop its .active marker in the main checkout.
@@ -527,15 +626,21 @@ def remove_worktree(state: FeatureState, done: bool) -> str:
     """
     if not state.uses_worktree() or state.field("Worktree") == "":
         if done:
+            require_finished(state, state.repository_root)
             mark_done(state)
         return "No worktree to remove (the feature works in the main checkout)."
     worktree_path = state.code_root().resolve()
     repository_root = state.repository_root
     if worktree_path not in registered_worktrees(repository_root):
         if done:
+            require_finished(state, repository_root)
             mark_done(state)
         return f"Worktree {worktree_path} is already removed."
-    state.log(f"worktree {worktree_path} removed, feature folder kept in the main checkout")
+    if done:
+        require_finished(state, repository_root)
+    state.log(
+        f"worktree {worktree_path} removed, feature folder kept in the main checkout",
+    )
     state.save()
     archive = archive_feature_folder(state)
     require_git(

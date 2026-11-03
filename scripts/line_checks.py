@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import command_runner
-from check_python_conventions import check_python_file
+from check_python_conventions import check_python_file, is_allowed_duplicate_code_disable
 from git_changes import LineFilter
+from check_vue_conventions import check_vue_file
 from mypy_strict import build_mypy_command, filter_mypy_output
 
 # ----- Consts ----- #
@@ -24,6 +25,7 @@ from mypy_strict import build_mypy_command, filter_mypy_output
 LINTER_TIMEOUT_SECONDS = 45
 MYPY_TIMEOUT_SECONDS = 600
 PYTHON_SUFFIXES = (".py", ".pyi")
+VUE_SUFFIX = ".vue"
 FRONTEND_SUFFIXES = (".vue", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 PYTHON_PROJECT_MARKER = "pyproject.toml"
 RUFF_VENV_CANDIDATE = ".venv/bin/ruff"
@@ -39,7 +41,7 @@ SUPPRESSION_PATTERN = re.compile(
     r"|#\s*(?:ruff|flake8)\s*:\s*noqa"
     r"|#\s*type:\s*ignore"
     r"|#\s*mypy:\s*ignore-errors"
-    r"|#\s*pylint:\s*disable"
+    r"|#\s*pylint:\s*(?:disable|enable)"
     r"|#\s*pyright:\s*ignore"
     r"|#\s*pragma:\s*no\s*cover"
     r"|eslint-disable"
@@ -194,6 +196,18 @@ def collect_python_problems(path: Path, base_source: str | None) -> list[Problem
     return problems
 
 
+def collect_vue_convention_problems(path: Path) -> list[Problem]:
+    if path.suffix != VUE_SUFFIX:
+        return []
+    return [
+        Problem(
+            violation.line,
+            violation.render(),
+        )
+        for violation in check_vue_file(path)
+    ]
+
+
 def collect_frontend_problems(path: Path) -> list[Problem]:
     eslint = find_eslint(path)
     if eslint is None:
@@ -244,6 +258,8 @@ def collect_suppression_problems(path: Path, line_filter: LineFilter) -> list[Pr
 
         suppression = pattern.search(source_line)
         if suppression is None:
+            continue
+        if path.suffix in PYTHON_SUFFIXES and is_allowed_duplicate_code_disable(source_lines, line_number):
             continue
 
         problems.append(
@@ -302,6 +318,7 @@ def changed_line_problems(path: Path, line_filter: LineFilter, base_source: str 
         problems = collect_python_problems(path, base_source)
     elif path.suffix in FRONTEND_SUFFIXES:
         problems = collect_frontend_problems(path)
+        problems.extend(collect_vue_convention_problems(path))
         problems.extend(
             collect_frontend_comment_problems(
                 path,

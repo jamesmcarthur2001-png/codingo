@@ -7,7 +7,7 @@ Run this per changed test file. Every item must be answered ✅, ❌ (with `file
 ## Location & naming
 - [ ] TS-01 File path is `tests/<module_name>/test_<what_we_test>.py`
 - [ ] TS-02 Test names follow `test_<unit>_<condition>_<expected>`
-- [ ] TS-03 Module helpers live in that module's `utils.py` (or `utils/`), and fixtures live in its `conftest.py` or at the top of the file
+- [ ] TS-03 Shared helpers live in `tests/utils/<subject>.py`; a module's helpers and `initialize_test_environment` live in `tests/<module>/<module>_test_utils.py`; a module's `conftest.py` holds only `module_env` and `env`; other fixtures live in at the top of the file
 
 ## File structure
 - [ ] TS-04 Order is imports, then local fixtures, then test functions
@@ -20,6 +20,16 @@ Run this per changed test file. Every item must be answered ✅, ❌ (with `file
 - [ ] TS-09 Each test checks one thing (multiple asserts only on the same result)
 - [ ] TS-29 One production unit per test: never create with the creator and check with the reader (or any two units); check through the models or the returned object
 - [ ] TS-30 The package's test environment is created and changed only in its `initialize_test_environment`; no test, fixture or helper adds, changes or deletes its rows
+- [ ] TS-32 The package's environment holds the rows the package is about, in every state the tests assert; a test builds its own subject only when it tests creation
+- [ ] TS-33 No test writes outside the unit under test: no `session.commit()`, no direct mutation to stage a state
+- [ ] TS-34 Assertions are about rows the test created or touched; no whole-table emptiness or row-count assertions
+- [ ] TS-35 Nothing not owned is counted or indexed: no literal row counts, no `rows[0]`, no hard-coded ids; explicit predicates against the fixture's collection
+- [ ] TS-36 Every assertion catches a plausible wrong implementation, and none was already true before the act
+- [ ] TS-37 Tests the task doesn't need are byte-identical to the base branch
+- [ ] TS-38 A validator shared by create and update is tested through both
+- [ ] TS-39 A filter is tested against an independent Python re-implementation over the fixture data, compared as sets, and every filter field has a test
+- [ ] TS-40 Sort and pagination tests use fixture rows that differ only in the sorted column
+- [ ] TS-41 A new method that loops over a collection pins its query count; a lowered count lowers its constant; the constant's name says where the number comes from
 - [ ] TS-31 `initialize_test_environment` builds rows only with the main service's model classes, never with production managers, creators or helpers
 - [ ] TS-10 No `for` loops in tests. Uses `@pytest.mark.parametrize`.
 - [ ] TS-11 Every test asserts something meaningful (no missing asserts, no `assert True`, not only "the mock was called" when a real result exists)

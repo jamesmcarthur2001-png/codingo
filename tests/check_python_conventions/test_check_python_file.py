@@ -247,3 +247,9 @@ def test_check_python_file_banners_shebang_and_hash_in_strings_are_not_comments(
     path = write_python_file("#!/usr/bin/env python3\n" + HEADER + "# ----- Imports ----- #\n\nimport os\n\n# ----- Consts ----- #\n\nCOLOR = \"#ff0000\"\n")
 
     assert "PY-52" not in rule_ids(path)
+
+
+def test_check_python_file_allowed_duplicate_code_disable_is_not_a_comment(write_python_file: Callable[..., Path]):
+    path = write_python_file(HEADER + "# ----- Imports ----- #\n\nimport os\n\n# ----- Functions ----- #\n\n\n# pylint: disable=duplicate-code\ndef export_rows() -> list[int]:\n    \"\"\"\n    Export the rows.\n    \"\"\"\n    return []\n")
+
+    assert "PY-52" not in rule_ids(path)

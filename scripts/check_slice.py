@@ -67,27 +67,23 @@ class BranchReport:
 # ----- Functions ----- #
 
 
-def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchReport:
+def changed_line_report(code_root: Path, base: str) -> tuple[list[str], list[str]]:
     """
-    Run the changed-line checks and the scope check on everything the branch changed.
+    Run the changed-line checks on everything a branch changed against its base.
 
-    :param state: The feature's state, naming its base and worktree.
-    :param allowed_patterns: The files the plan allows so far.
-    :return: The problems, out-of-scope files and changed existing lines.
+    :param code_root: The checkout to check.
+    :param base: The base branch.
+    :return: The changed files, and one line per problem on a changed line.
+    :raises GitError: When git can't find the base or the changes.
     """
-    code_root = state.code_root()
-    base_commit = diff_base_commit(state.field("Base"), code_root)
+    base_commit = diff_base_commit(base, code_root)
     changed = [
         path
         for path in changed_files(base_commit, code_root)
         if not path.startswith(FEATURES_PREFIX)
     ]
     line_filters = branch_line_filters(base_commit, code_root)
-    report = BranchReport(
-        changed=changed,
-        out_of_scope=out_of_scope_files(changed, allowed_patterns),
-        existing_line_changes=changed_existing_lines(base_commit, code_root),
-    )
+    problems: list[str] = []
     absolute_filters: dict[Path, LineFilter] = {}
     for relative_path in changed:
         path = code_root / relative_path
@@ -101,7 +97,7 @@ def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchRepo
             relative_path,
             code_root,
         )
-        report.problems.extend(
+        problems.extend(
             problem.text
             for problem in changed_line_problems(
                 path,
@@ -116,8 +112,33 @@ def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchRepo
         if path.suffix in PYTHON_SUFFIXES
     ]
     if len(python_paths) > 0:
-        report.problems.extend(problem.text for problem in mypy_problems(python_paths, absolute_filters))
+        problems.extend(problem.text for problem in mypy_problems(python_paths, absolute_filters))
 
+    return changed, problems
+
+
+def check_branch(state: FeatureState, allowed_patterns: list[str]) -> BranchReport:
+    """
+    Run the changed-line checks and the scope check on everything the branch changed.
+
+    :param state: The feature's state, naming its base and worktree.
+    :param allowed_patterns: The files the plan allows so far.
+    :return: The problems, out-of-scope files and changed existing lines.
+    """
+    code_root = state.code_root()
+    changed, problems = changed_line_report(
+        code_root,
+        state.field("Base"),
+    )
+    report = BranchReport(
+        changed=changed,
+        out_of_scope=out_of_scope_files(changed, allowed_patterns),
+        existing_line_changes=changed_existing_lines(
+            diff_base_commit(state.field("Base"), code_root),
+            code_root,
+        ),
+    )
+    report.problems.extend(problems)
     return report
 
 

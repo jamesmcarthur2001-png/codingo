@@ -58,19 +58,22 @@ STEP_TEMPLATES = {
         "and continue; never write BLOCKED for this. Then set `Phase: FINISH`."
     ),
     "FINISH": (
-        "Do the finish yourself in the code root, recording each done step under `## Finish` in state.md: "
+        "Finished means all four: rebased on the latest base, the pipeline of the pushed commit passed, every container of the branch closed, "
+        "and the worktree closed. Do the finish yourself in the code root, recording each done step under `## Finish` in state.md: "
         "write `Commit title:` (`<type>(<service>): <what was done>`, no ticket, no body) and `MR title:` (the commit title + ` ({ticket})`); "
-        "check you're on the feature branch; `git add -A` and `git commit -m \"<Commit title>\"`; `git pull --rebase origin <Base>` "
-        "(resolve conflicts, run the tests, `rebase --continue`); `git push --force-with-lease origin HEAD:refs/heads/<Branch>` "
+        "check you're on the feature branch; run `python3 \"{scripts}/check_changes.py\" --base <Base>` and fix what it lists (before every commit); "
+        "`git add -A` and `git commit -m \"<Commit title>\"`; `git pull --rebase origin <Base>` "
+        "(resolve conflicts, run the tests, `rebase --continue`; then `- rebase: done`); `git push --force-with-lease origin HEAD:refs/heads/<Branch>` "
         "(rejected: someone else pushed, write BLOCKED); poll `glab ci status --branch <Branch>` until it passes "
-        "(failed: fix, test, commit, rebase, push again; the pipeline must pass); "
-        "`docker compose -p <Compose project> down --remove-orphans`; then set `Phase: SUMMARY`."
+        "(failed: fix, test, commit, rebase, push again; the pipeline must pass; then `- pipeline: passed (<commit>)`); "
+        "`docker compose -p <Compose project> down --remove-orphans` until `docker ps` shows none of its containers (then `- containers: closed`); "
+        "then set `Phase: SUMMARY`."
     ),
     "SUMMARY": (
         "Write docs/features/{ticket}/summary.md in the code root (what was built, every review finding of every source and what happened to it, "
         "the video, the MR title, what's left for the user) and show it to the user. Then close the worktree: call `ExitWorktree` (action keep) "
-        "and run `python3 \"{scripts}/worktree.py\" remove {ticket} --done` (it copies the feature folder to the main checkout, removes the worktree "
-        "and sets `Status: DONE`; without a worktree it only sets DONE)."
+        "and run `python3 \"{scripts}/worktree.py\" remove {ticket} --done`: it refuses (exit 1) until the branch is rebased, the pipeline passed "
+        "and the branch's containers are closed; then it copies the feature folder to the main checkout, removes the worktree and sets `Status: DONE`."
     ),
 }
 PLAYWRIGHT_STEP = ", `playwright-reviewer`"

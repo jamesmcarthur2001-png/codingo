@@ -14,6 +14,7 @@ Strict conventions for frontend development using Vue 3 (Composition API), Vueti
 ## 1. Component Architecture & Sizing
 
 - **Small, Focused Components**: Prefer small, focused components over monolithic ones. Extract genuinely reusable components: when a part of a template could be used elsewhere (a field group, a toolbar, a status chip), split it into its own component. Split oversized components.
+- **Naming**: a modal's content component is `XModal.vue`, never `XDialog.vue`. A component or util named for a shared concept carries its owner's prefix (`EntityStatusChip.vue`, `utils/entity-status.ts`), so the name says whose concept it is.
 - **Dialog Decomposition (`v-dialog`)**:
   - **Never** make `v-dialog` the root element of a component.
   - Create the dialog's content as a standalone modal/card component.
@@ -205,10 +206,12 @@ The same applies to self-closing components: each attribute on its own line, and
 ### Loading States & Async Handling
 
 - **Visual Loading Indicators**: Always indicate loading state during asynchronous operations (a spinner, or `:loading="isActionLoading"` on buttons, progress bars, or skeletons). Never leave users without visual feedback during network operations.
-- **Empty state**: every list or async view has an empty state with a clear message (`No assets yet.`), not a blank area.
+- **Empty state**: every list or async view has an empty state with a clear message (`No assets yet.`), not a blank area. House patterns: inside a select or a scroll list, `<template #empty>` with a fixed small height; an empty tab or page carries `not_found.svg` with its message.
+- **The form mirrors the model.** A field the service rejects when blank is `required` with `:rules` in the create and edit form. For every new or changed endpoint, read its create model's required fields, then check the form against them.
 - **Independent loads together**: loads that don't depend on each other run in one `await Promise.all([...])`, not one `await` after another.
 - **Debounced Loading**: Always debounce search and filter-driven loading functions. All debounce timeout values must be declared as named constants (e.g. `const SEARCH_DEBOUNCE_MS = 300`).
-- **Long lists**: use the infinite list / generic loadable resources (built on `v-infinite-scroll`) for paginated lists, feeds, and lazy-loaded datasets.
+- **Every async load goes through the house loadables**: `useLoadableResource` for one load, `useInfiniteListLoadableResourceWithFunction` for paged and infinite lists (built on `v-infinite-scroll`). No hand-rolled `isLoading` ref + `try`/`catch` + offset bookkeeping in a component. Need a new loadable variant? Ask first; don't add one.
+- **A paged source never adds or drops rows.** The page function maps every record it gets to exactly one row. Never filter inside it: the offset advances by the page's length, so a filtered page silently skips records and ends the list early. Filter on the server, or after the page is in memory.
 - **Realistic page sizes**: request what one page (or one scroll step) actually shows, usually 10–25 items; load the next page when the user gets there.
 - **Error Handling**: user-facing errors are shown through `showGlobalSnackbar`; network/API errors go through `handleNetworkError`. Never `console.log` (or any `console.*`) in committed code.
 

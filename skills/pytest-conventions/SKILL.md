@@ -28,6 +28,24 @@ Opinionated, comprehensive testing patterns for Python and pytest. Incorporates 
 11. **Isolation and order-independence**: Zero shared mutable state across tests. Tests must pass regardless of execution order and run cleanly in parallel (e.g. with `pytest-xdist`).
 12. **Mock at the boundary you own**: Patch where the object is *imported and looked up*, not where it is defined. Mock external network, filesystem, and clocks; never mock the unit under test.
 13. **No comments**: not even `# Arrange` / `# Act` / `# Assert`; the blank lines show them.
+
+### What a test owns
+- **The package's environment holds the rows that package is about**, in every state its tests assert about. If `tests/cases/` tests cases and their variants, its `initialize_test_environment` creates them. A test never manufactures its own subject, unless it tests the creation of that thing.
+- **A test never writes outside the unit under test**: no `session.commit()`, no direct mutation of a row to stage a state. A state a test needs is a row in the environment.
+- **Assert about the rows your test created or touched**, never that a whole table is empty or has N rows. Search by the ids you made and expect `None`. With shared, growth-only fixture data, a whole-table assertion is wrong now and broken by the next addition.
+- **Nothing you don't own is counted or indexed**: no literal row counts, no positional selection (`rows[0]`), no hard-coded ids. Select by an explicit predicate with its exclusions spelled out, and compare against the fixture's own collection.
+- **Every assertion names the mistake it catches.** Picture one plausible wrong implementation; if the test still passes, it isn't an assertion. An assertion that was already true before the act counts as none.
+- **A test the task doesn't need stays byte-identical**, including tests of another module and tests that came from the base branch.
+
+### Validators, filters, sorting and query counts
+- **A validator shared by create and update is tested through both**, not once.
+- **A filter is tested against an independent Python re-implementation of its rule** over the fixture data, compared as sets, never against a hand-written list of expected ids (that pins the fixture's contents and breaks when it grows). A new filter field updates that re-implementation in the same commit.
+- **Every field of a filter model gets a test that exercises it**, so a field with no column behind it fails a test instead of answering 500 to a user.
+- **Sort and pagination get fixture rows that differ only in the sorted column.**
+- **Query counts**: where the suite has a query or invocation-count mechanism, a new method that loops over a collection pins its count in the same commit, and an existing count constant is lowered when a change reduces the count. Where the number comes from goes in the constant's name (e.g. `EXPORT_QUERIES_ONE_PER_TABLE = 3`), not in a comment.
+
+### Before any run
+- Read which database the run resolves to and confirm it is a test database. Never create or drop anything in one you're unsure of.
 14. **100% test coverage**: All new business logic, models, services, and endpoints require 100% test coverage.
     - *Exception*: twilight (the reverse proxy) has no tests at all.
 
@@ -39,19 +57,22 @@ Opinionated, comprehensive testing patterns for Python and pytest. Incorporates 
 
 Mirror the source tree layout inside the `tests/` directory:
 
-We have `tests/`, and then directories for each module (e.g. `entities`, `entity_types`, etc.).
-Inside each module directory, we have the module's `conftest.py` and `utils` files:
+We have `tests/`, a shared `tests/utils/` package, and a directory for each module (e.g. `entities`, `entity_types`):
 
 ```
 tests/
-  conftest.py                   # Root/global session fixtures
-  <module_name>/                # Directory for each module (e.g., entities, entity_types)
-    conftest.py                 # Module-specific fixtures
-    utils.py                    # Module test helpers and mock utilities (or utils/ directory)
-    test_<what_we_test>.py      # Test files for this module
+  conftest.py                        root fixtures
+  utils/                             shared test helpers, one file per subject
+    general.py
+    project.py
+  <module_name>/                     one directory per module (e.g. entities, entity_types)
+    conftest.py                      only the module_env and env fixtures
+    <module_name>_test_utils.py      the module's helpers and its initialize_test_environment
+    test_<what_we_test>.py
 ```
 
-- **Module Utils**: Use the `utils` files located inside each module directory for module-specific test helpers and mocks.
+- **Helpers**: shared helpers go in `tests/utils/<subject>.py` (`general.py`, `project.py`, …); a module's own helpers and its `initialize_test_environment` go in `tests/<module>/<module>_test_utils.py`. There is no `utils.py` in a module directory.
+- **`conftest.py` in a module holds only `module_env` and `env`.** Any other fixture lives at the top of the test file that uses it.
 - **Path format**: `tests/<module_name>/test_<what_we_test>.py`.
 - **Test function naming**: `test_<unit>_<condition>_<expected>`:
   - `test_create_user_duplicate_email_raises_duplicate_user_error`
@@ -65,7 +86,7 @@ Every test file must follow this strict sequence:
 2. **Local Fixtures**: Module-specific fixtures immediately following imports.
 3. **Test Functions**: Standalone functions (`def test_*`).
    - **No classes in test files** unless strictly necessary.
-   - **No code comments in test files** unless strictly necessary to document a non-obvious upstream workaround. Tests must be self-explanatory.
+   - **No code comments in test files**, ever. Tests must be self-explanatory.
 
 ---
 

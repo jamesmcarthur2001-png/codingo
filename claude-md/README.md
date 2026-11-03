@@ -10,7 +10,7 @@ relative paths they get in the repo. Folder paths are placeholders: check them a
 | `services/evermore/tests/CLAUDE.md` | `services/evermore/tests/CLAUDE.md` | The inventory test model (wins over pytest-conventions) |
 | `services/twilight/CLAUDE.md` | `services/twilight/CLAUDE.md` | Reverse-proxy rules; no tests in twilight |
 | `libs/midnight_models/CLAUDE.md` | `libs/midnight_models/CLAUDE.md` | Models only |
-| `frontend/CLAUDE.md` | `frontend/CLAUDE.md` | Frontend rules a script can't check |
+| `web/sunrise/CLAUDE.md` | `web/sunrise/CLAUDE.md` | Frontend (sunrise) rules a script can't check |
 
 Claude Code loads a folder's CLAUDE.md whenever it reads a file in that folder.
 If you can't commit them to the team repo yet, save each one as `CLAUDE.local.md` in the same folder (git-ignored),

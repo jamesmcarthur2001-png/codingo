@@ -31,5 +31,5 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-69 (auto) Exception classes are defined only in errors files (`errors.py`, `errors/`, `*_errors.py`)
 
 ## Suppressions & private members
-- [ ] PY-53 (auto) No suppressions at all (`# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore`, `eslint-disable`). `check_slice.py` and `gate_a.py` fail on any new one.
+- [ ] PY-53 (auto) No suppressions at all (`# noqa`, `# type: ignore`, `# pylint: disable`, `# pyright: ignore`, `eslint-disable`). `check_slice.py` and `gate_a.py` fail on any new one. Only exception: one `# pylint: disable=duplicate-code` on its own line directly above a function or class that mirrors its sibling.
 - [ ] PY-54 (auto) No private member (`_name`) of another class or module is used or imported

@@ -7,7 +7,7 @@ import shutil
 import pytest
 
 import worktree
-from conftest import git
+from conftest import FakeCommands, git, ok
 from feature_state import FeatureState, find_active_feature, find_running_feature, load_feature_state
 from guard_branch import find_branch_changes
 
@@ -159,14 +159,92 @@ def test_remove_copies_the_feature_folder_into_the_main_checkout(repository: Rep
     assert repository.state().field("Status") == "RUNNING"
 
 
-def test_remove_with_done_marks_the_copied_feature_done(repository: Repository, monkeypatch: pytest.MonkeyPatch):
+def finish_the_branch(repository: Repository, *finish_lines: str):
+    git(repository.root / WORKTREE, "push", "--quiet", "origin", f"{BRANCH}:{BRANCH}")
+    state = repository.state()
+    state.set_field("Compose project", "btrc-1234")
+    for finish_line in finish_lines:
+        state.append_to_section("Finish", finish_line)
+    state.save()
+
+
+FINISHED = ("- rebase: done", "- pipeline: passed (abc1234)", "- containers: closed")
+
+
+def test_remove_with_done_marks_the_copied_feature_done(
+    repository: Repository,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+):
     run_main(monkeypatch, "create", "BTRC-1234")
+    finish_the_branch(repository, *FINISHED)
+    fake_commands(True).respond("docker ps", ok(""))
 
     exit_code = run_main(monkeypatch, "remove", "BTRC-1234", "--done")
 
     assert exit_code == 0
     assert not (repository.root / WORKTREE).exists()
     assert repository.state().field("Status") == "DONE"
+
+
+@pytest.mark.parametrize("missing_line,expected_problem", [
+    ("- pipeline: passed (abc1234)", "pipeline isn't recorded as passed"),
+    ("- rebase: done", "isn't recorded as rebased"),
+    ("- containers: closed", "containers aren't recorded as closed"),
+])
+def test_remove_with_done_refuses_an_unfinished_branch(
+    repository: Repository,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+    missing_line: str,
+    expected_problem: str,
+):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    finish_the_branch(repository, *[finish_line for finish_line in FINISHED if finish_line != missing_line])
+    fake_commands(True).respond("docker ps", ok(""))
+
+    exit_code = run_main(monkeypatch, "remove", "BTRC-1234", "--done")
+
+    assert exit_code == 1
+    assert expected_problem in capsys.readouterr().out
+    assert (repository.root / WORKTREE).exists()
+
+
+def test_remove_with_done_refuses_while_a_container_of_the_branch_runs(
+    repository: Repository,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    finish_the_branch(repository, *FINISHED)
+    fake_commands(True).respond("docker ps", ok("3f2a1b\n"))
+
+    exit_code = run_main(monkeypatch, "remove", "BTRC-1234", "--done")
+
+    assert exit_code == 1
+    assert "containers of btrc-1234 are still running" in capsys.readouterr().out
+
+
+def test_remove_with_done_refuses_a_branch_behind_the_base(
+    repository: Repository,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_commands: Callable[[bool], FakeCommands],
+    capsys: pytest.CaptureFixture[str],
+):
+    run_main(monkeypatch, "create", "BTRC-1234")
+    finish_the_branch(repository, *FINISHED)
+    (repository.root / "base-change.md").write_text("new\n", encoding="utf-8")
+    git(repository.root, "add", "-A")
+    git(repository.root, "commit", "--quiet", "-m", "base moved")
+    git(repository.root, "push", "--quiet", "origin", "master")
+    fake_commands(True).respond("docker ps", ok(""))
+
+    exit_code = run_main(monkeypatch, "remove", "BTRC-1234", "--done")
+
+    assert exit_code == 1
+    assert "isn't rebased on the latest origin/master" in capsys.readouterr().out
 
 
 def test_remove_in_no_worktree_mode_does_nothing(repository: Repository, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):

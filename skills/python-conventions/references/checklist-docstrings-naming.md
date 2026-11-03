@@ -18,7 +18,7 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 ## Naming
 - [ ] PY-22 Function and variable names say exactly what they handle (no `load`, `process`, `data`, `item`)
 - [ ] PY-36 (auto) No single-letter or abbreviated names (`q`, `db`, `e`, `err`, `idx`, ...) for variables, parameters, loop variables, or `except ... as`. Short external names use `alias=`.
-- [ ] PY-62 (auto) No new manager method that fetches something starts with `get_`: `entity_by_id`, `entity_by_id_raw` or `entity_by_id_internal`, not `get_entity_by_id`. `get_` elsewhere is fine. Existing names (`get_session`, `get_and_inc`) stay as they are.
+- [ ] PY-62 (auto) No new manager method that fetches something starts with `get_`: `entity_by_id`, `entity_by_id_raw` or `entity_by_id_internal`, not `get_entity_by_id`. dependency providers and non-SQL getters must start with `get_` (PY-84). Existing names (`get_session`, `get_and_inc`) stay as they are.
 
 ## Comments
 - [ ] PY-52 (auto) No comments at all: the only `#` lines are section banners. A line that "needs" a comment gets a better variable or function name instead

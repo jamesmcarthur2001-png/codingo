@@ -24,9 +24,13 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
    Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, joined by a comma and a space when several (`feat(evermore, frontend): …`). No ticket in the commit.
    MR title: the same, followed by ` (BTRC-<n>)`. With more than one ticket, join the parts with ` & `: `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
 10. Any `docker compose` command for this branch uses `-p <Compose project>` and the files in `Compose files:`.
-11. Never add `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `# pragma: no cover`. Fix the code instead.
+11. Never add `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`, `@ts-ignore`, `@ts-expect-error` or `# pragma: no cover`. Fix the code instead. The one exception: a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`.
 12. Never create, rename or switch branches yourself. `worktree.py` does it, and it never creates a second branch for the same BTRC-n.
 13. Tests run only on a **test database**: the one the service's test setup creates, or this branch's own stack (`-p <Compose project>`). Never on the user's own database (the one in `.env`, the default compose project, the usual local dev port). Before the first test run, find which database URL the tests will use and write it as `Test database:` in state.md; if it is the user's database, don't run the tests: point them at a test database through the test command's environment, and if none exists, write `Status: BLOCKED: no test database` (before approval: ask).
+14. **Before every commit to a feature branch** (the finish commit, a pipeline fix, a quick fix, also outside `/feature`), run the changed-line check against the branch's base and fix what it lists first:
+   ```
+   python3 "$HOME/.claude/scripts/check_changes.py" --base <Base>
+   ```
 
 ## state.md format
 Top fields are `Name: value` lines before the first `## `. Change one by rewriting its line.
@@ -265,22 +269,24 @@ Five reviewers look at the branch, each for one kind of problem; a verifier then
 4. Set `Phase: FINISH`.
 
 ## F. Finish (Phase: FINISH)
-You do this step yourself, in the code root (the worktree), one command at a time. Record each finished step as a line under `## Finish` in state.md (e.g. `- push: done (<commit>)`), so a resume skips what's done.
+**The feature is finished only when all four are true:** the branch is rebased on the latest base, the pipeline of the pushed commit **passed**, every container of this branch is closed, and the worktree is closed (step Z). Not one of them may be skipped, assumed or left for the user. `worktree.py remove --done` checks all of them and refuses to set `Status: DONE` until they hold.
+You do this step yourself, in the code root (the worktree), one command at a time. Record each finished step as a line under `## Finish` in state.md, exactly as written below, so a resume skips what's done.
 1. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`.
 2. Check: `git branch --show-current` is `<Branch>`, never `<Base>`. If not, write `Status: BLOCKED: wrong branch checked out` and stop.
-3. Commit everything, title only: `git add -A`, then `git commit -m "<Commit title>"` (no `-m` body, no trailers). `docs/features/` is git-ignored, so it isn't committed.
+3. Run the changed-line check (rule 14) and fix what it lists. Then commit everything, title only: `git add -A`, then `git commit -m "<Commit title>"` (no `-m` body, no trailers). `docs/features/` is git-ignored, so it isn't committed.
 4. Rebase on the base: `git fetch origin`, then `git pull --rebase origin <Base>`.
    - Conflict: resolve each listed file (no `<<<<<<<` / `>>>>>>>` left), `git add <files>`, run the `test` command, then `git -c core.editor=true rebase --continue`. Repeat until the rebase is done.
+   - Check it: `git merge-base --is-ancestor origin/<Base> HEAD` succeeds. Then write `- rebase: done`.
 5. Push: `git push --force-with-lease origin HEAD:refs/heads/<Branch>`.
    - Rejected because someone else pushed to the branch: write `Status: BLOCKED: someone else pushed to <Branch>` and stop. Never force over it.
 6. CI must pass: run `glab ci status --branch <Branch>` every minute (Bash `sleep 60` between runs, up to 45 minutes) until the pipeline of the pushed commit finishes.
-   - Passed: go on.
-   - Failed: `glab ci trace <job> --branch <Branch>` for the failing job, fix the cause, run the tests, commit with the same title style (`fix(<service>): <what was fixed>`), and go back to step 4.
+   - Passed: write `- pipeline: passed (<short commit>)` and go on.
+   - Failed: `glab ci trace <job> --branch <Branch>` for the failing job, fix the cause, run the changed-line check (rule 14) and the tests, commit with the same title style (`fix(<service>): <what was fixed>`), remove the `- rebase:` and `- pipeline:` lines, and go back to step 4. A pipeline that passed for an older commit doesn't count.
    - Manual, blocked or canceled, or still running after 45 minutes: write `Status: BLOCKED: pipeline <state>` and stop.
    Never write the summary on a failed or unfinished pipeline.
-7. Stop the containers: `docker compose -p <Compose project> -f <each Compose file> down --remove-orphans` (volumes are kept).
+7. Close **every** container of this branch: `docker compose -p <Compose project> -f <each Compose file> down --remove-orphans` (volumes are kept), and stop anything else you started for it (a dev server, a Playwright browser). Check: `docker ps --filter label=com.docker.compose.project=<Compose project>` lists nothing. Then write `- containers: closed`.
 8. With `Worktree mode: none`: update the base in the main checkout (`git fetch origin <Base>:<Base>`).
-9. Set `Phase: SUMMARY`. The worktree is closed in step Z.
+9. Set `Phase: SUMMARY`. The worktree is closed in step Z; until then the feature isn't finished.
 
 ## Z. Summary (Phase: SUMMARY)
 1. Write `docs/features/<Ticket>/summary.md` in the code root:
@@ -305,12 +311,12 @@ You do this step yourself, in the code root (the worktree), one command at a tim
    ```
    List **every** finding of every source from every round.
 2. Show the user the summary.
-3. Close the worktree (it sets `Status: DONE`; the Stop hook keeps you going until it does):
+3. Close the worktree. This is the last of the four conditions, and the only way to `Status: DONE`; the Stop hook keeps you going until it's set:
    - Worktree feature: call **`ExitWorktree`** with action `keep` (the script removes it), then from the main checkout run
      ```
      python3 "$HOME/.claude/scripts/worktree.py" remove <Ticket> --done
      ```
-     It copies the feature folder to `<main checkout>/docs/features/<Ticket>/`, runs `git worktree remove` (the branch stays) and sets `Status: DONE` in the copy. If `ExitWorktree` isn't available, run the same command from the worktree, and run nothing in it afterwards.
+     It first checks the other three: the `## Finish` lines `- rebase: done`, `- pipeline: passed`, `- containers: closed`, that `origin/<Branch>` is the local branch and sits on the latest `origin/<Base>`, and that no container of `<Compose project>` runs. Any of them failing: exit 1 with the list; go back to step F, fix it, and run it again. Then it copies the feature folder to `<main checkout>/docs/features/<Ticket>/`, runs `git worktree remove` (the branch stays) and sets `Status: DONE` in the copy. If `ExitWorktree` isn't available, run the same command from the worktree, and run nothing in it afterwards.
      Exit 1 (uncommitted files): show `git status` of the worktree, and stop with that message.
    - `Worktree mode: none`: run the same command; it only sets `Status: DONE` and deletes `.active`.
 4. Tell the user the feature folder path and the MR title.

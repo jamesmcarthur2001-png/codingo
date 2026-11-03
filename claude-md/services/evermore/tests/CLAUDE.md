@@ -46,7 +46,14 @@ A package may build several environments on package_env_session; they share the 
 - initialize_test_environment builds rows with evermore's own model classes only (Entity(...), session.add(...)).
   Never call production managers, creators or helpers there: a bug in them would then be built into the data,
   and the tests would agree with it instead of finding it.
+- The environment holds the rows the package is about, in every state its tests assert about (tests/cases/ tests
+  cases and variants, so its initialize_test_environment creates them). A test never manufactures its own subject,
+  unless it tests the creation of that thing.
 - Tests fetch what they need from env and declare exactly what they need. They never build rows.
+- A test never writes outside the unit under test: no session.commit(), no direct mutation to stage a state.
+- Assert about the rows your test created or touched, never that a table is empty or has N rows (search by the ids
+  you made and expect None). Nothing you don't own is counted or indexed: no literal counts, no rows[0], no
+  hard-coded ids; select by an explicit predicate and compare against the fixture's own collection.
 - Missing a row? Add it in initialize_*_environment, with its migrate_session entry. Never work around it in the test.
 - A test must pass whatever else is added to the environment later. Environments only grow.
 - Every time-valued column gets creation_and_time_generator.get_and_inc(), never a literal or now(),
@@ -62,6 +69,20 @@ A package may build several environments on package_env_session; they share the 
 - Whole-response assertions build the expected value with the test's own formatter (e.g. format_entity_full)
   from the env row. The formatter converts by itself. It may import production model classes,
   never production conversion logic.
+
+## Filters, validators, sorting, counts
+- A filter is tested against an independent Python re-implementation of its rule over the fixture data, compared as
+  sets, never a hand-written list of ids. A new filter field updates that re-implementation in the same commit.
+- Every field of a filter model gets a test that exercises it.
+- Sort and pagination get fixture rows that differ only in the sorted column.
+- A validator shared by create and update is tested through both.
+- Where the suite counts queries, a new method that loops over a collection pins its count in the same commit (the
+  constant's name says where the number comes from); a change that lowers the count lowers the constant.
+
+## Layout
+- tests/utils/ is a package of shared helpers, one file per subject (general.py, project.py, ...).
+- Each module directory has <module>_test_utils.py (its helpers and initialize_test_environment) and a conftest.py
+  that holds only module_env and env.
 
 ## Control flow (tests too)
 - Explicit checks: len(items) == 0, value is None. Booleans: `if is_ready:`, never `== True` / `is True`.

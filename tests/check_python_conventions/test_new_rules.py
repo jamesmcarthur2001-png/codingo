@@ -115,3 +115,32 @@ def test_check_python_file_multiline_call_violation_spans_the_whole_call(write_p
     violation = next(violation for violation in check_python_file(path) if violation.rule_id == "PY-24")
 
     assert (violation.line, violation.last_line) == (11, 12)
+
+
+@pytest.mark.parametrize("source,expected_rule_id", [
+    ("class EntityCreator:\n    def __init__(self, session):\n        self._reader = EntityReader(session)\n", "PY-74"),
+    ("class EntityReader:\n    def entities(self, ids):\n        for entity_id in ids:\n            self._session.get(Entity, entity_id)\n", "PY-75"),
+    ("class EntityReader:\n    def entities(self, ids):\n        return [self.entity_by_id(entity_id) for entity_id in ids]\n", "PY-75"),
+    ("class EntityCreator:\n    def create(self, name):\n        raise ConflictError(f\"Failed to create entity {name}\")\n", "PY-77"),
+    ("class EntityPayload(BaseModel):\n    extra: dict[str, Any]\n", "PY-83"),
+])
+def test_check_python_file_manager_and_model_rules(write_python_file: Callable[..., Path], source: str, expected_rule_id: str):
+    path = write_python_file(source, "test_managers.py")
+
+    reported_rule_ids = rule_ids(path)
+
+    assert expected_rule_id in reported_rule_ids
+
+
+@pytest.mark.parametrize("source", [
+    "class EntityReader:\n    def entities(self):\n        for entity in self._session.exec(select(Entity)):\n            print(entity)\n",
+    "class EntityCreator:\n    def __init__(self, reader: EntityReader):\n        self._reader = reader\n",
+    "def build_readers(session):\n    return EntityReader(session)\n",
+    "class EntityPayload(BaseModel):\n    extra: dict[str, JsonValue]\n",
+])
+def test_check_python_file_manager_and_model_rules_allow_the_good_forms(write_python_file: Callable[..., Path], source: str):
+    path = write_python_file(source, "test_managers.py")
+
+    reported_rule_ids = rule_ids(path)
+
+    assert not set(reported_rule_ids) & {"PY-74", "PY-75", "PY-77", "PY-83"}

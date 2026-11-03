@@ -22,6 +22,8 @@ You review **what the tests prove**: whether they exist as planned and would fai
    - **One production unit per test** (TS-29): never create with the creator and check with the reader (or update then read, or one endpoint to check another). The result is checked through the models or the returned object.
    - **Environment only in its initialize** (TS-30): no test, fixture or helper adds, changes or deletes rows of the package's environment; that happens only in `initialize_test_environment`.
    - **Only the service's own models in initialize** (TS-31): `initialize_test_environment` builds rows with model classes, never with production managers, creators or helpers.
+   - **What the test owns** (TS-32 to TS-37): the environment holds the subject (a test builds its own only to test creation); no `session.commit()` or direct mutation to stage a state; assertions only about rows the test created or touched, no whole-table counts, no `rows[0]`, no hard-coded ids; tests the task doesn't need are unchanged.
+   - **Validators, filters, sorting, counts** (TS-38 to TS-41): a shared validator tested through create and update; filters against a Python re-implementation compared as sets, every filter field tested; sort and pagination rows differing only in the sorted column; query counts pinned.
    - **Would it fail if the code were wrong?** Picture one plausible wrong implementation (a flipped condition, a missing filter, the wrong status). If the test would still pass, it's a finding: name that wrong implementation.
    - No assertion, `assert True`, asserting only that a mock was called when a real result exists, asserting the value the test itself set up, `pytest.raises` without `match=`.
    - Every `EC-n` has a test that really exercises it.

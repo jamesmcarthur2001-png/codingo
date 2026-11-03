@@ -181,7 +181,7 @@ DOCSTRING EXPLANATION
 - **Classes & `__init__`**: Classes get a standard description with opening `"""` on line 1, description on line 2, and closing `"""` on line 3 (no `:param:` or `:return:`). `__init__` methods do **NOT** get a docstring.
 - **No blank line after a class docstring**: the class body (`__init__`, attributes, `__tablename__`, anything) starts on the line right after the closing `"""`.
 - **Indicative Naming**: Never use vague or generic names like `load` or `process`. Use explicit names that explain what is being handled (e.g., `load_customer_billing_history`, `process_credit_card_charge`).
-- **No `get_` on manager methods that fetch something**: a method of a manager (reader, creator, updater) that reads and returns rows is named for what it returns: `entity_by_id`, or `entity_by_id_raw` (the row as stored) / `entity_by_id_internal` (for use inside the service only) when that's the case. Never `get_entity_by_id`. Elsewhere `get_` is fine (e.g. `get_session`, `get_and_inc`, a helper or dependency).
+- **`get_` naming**: a manager method that fetches something never starts with `get_`: name what it returns, `entity_by_id`, or `entity_by_id_raw` (the row as stored) / `entity_by_id_internal` (for use inside the service only) when that's the case. Never `get_entity_by_id`. Dependency-injection providers (`get_session`, `get_current_user`) and general getters that aren't SQL related **must** start with `get_`.
 - **No short or abbreviated names**: no single-letter names and no abbreviations (`q`, `db`, `e`, `ex`, `err`, `idx`, `tmp`, `cfg`, `val`, `obj`, `res`, `req`, `resp`, `msg`, ...) for variables, parameters, loop and comprehension variables, or `except ... as` names. Write the full word: `query`, `session`, `error`, `index`. When an external name must stay short (e.g. a `?q=` query parameter), keep the full Python name and map it: `query: Annotated[str | None, Query(alias="q")] = None`.
 
 ---
@@ -481,7 +481,7 @@ site_names = [site.name for site in sites if not site.archived]
 ## 11. FastAPI Endpoints and Dependencies
 
 - **Every endpoint has a docstring** with only a short description (see §4).
-- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Dependencies may start with `get_`.
+- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Dependency providers always start with `get_` (§4).
 - **New routers use `prefix=`, not `tags=`**: `router = APIRouter(prefix="/sites")`.
 - **Never store a dependency in a constant or a type alias** (no `SessionDependency = Annotated[Session, Depends(get_session)]` and no `session_dependency = Depends(get_session)`). Spelling the dependency in each endpoint keeps every endpoint readable on its own.
 - Query and path parameters use full names (§4); use `alias=` when the URL needs a short name.
@@ -576,6 +576,7 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 ## 15. Lint Suppressions and Private Members
 
 - **No suppressions at all.** No `# noqa`, `# type: ignore`, `# pylint: disable=...`, `# pyright: ignore`, `eslint-disable`, or similar. Fix the code the tool reports. `check_slice.py` and `gate_a.py` fail on any new one.
+- **The one exception:** a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`. `check_slice.py`, `gate_a.py` and `check_changes.py` accept exactly that form and nothing else.
 - **Never use another class's or module's private members** (names starting with `_`): no `manager._build_query()`, no `from app.sites import _parse_row`. Use the public function. If none exists, make the needed function public in the module that owns it.
 - Inside a class, `self._name` and `cls._name` are fine.
 
@@ -617,3 +618,20 @@ class Site(SQLModel, table=True):
     name: str = unique_name_field()
 ```
 
+
+---
+
+## 17. Managers, Endpoints and the Database
+
+These apply to every service with managers and endpoints (in evermore: `services/evermore/CLAUDE.md` repeats them).
+
+- **A manager never constructs another manager.** Every manager it needs comes in through dependency injection: a constructor parameter the endpoint fills with `Depends(...)`. Never `EntityReader(self._session)` inside a manager.
+- **Batch, never loop.** No session call, query or `*_by_id` once per element of a loop. Read many with one `select(Model).where(Model.id.in_(ids))`, write many with one `session.add_all(...)`, delete many with one bulk delete. When fewer rows come back than ids went in, raise (`NotFoundError` naming the missing ids).
+- **A creator or updater returns the read model** the endpoint answers with. The endpoint never calls `convert_to_get_*` itself; it returns what the manager gave it.
+- **One prefix per message.** The manager's error message names the object and the reason (`"Entity 7 was not found."`). The endpoint's `except` adds `Failed to <action> <object>: ` in front. Never both: a manager message never starts with `Failed to`.
+- **Don't re-validate what a constraint already refuses.** No `_validate_*_exist` for a link or foreign key whose insert raises anyway; let the insert fail and map the integrity error.
+- **A uniqueness rule lives in the database.** When a `SELECT` enforces a name rule, the branch's migration also adds the (partial) unique index: the `SELECT` gives the friendly message, the index is the rule. When you reuse a sibling entity's rule, copy its comparison too (e.g. `lower(trim(name))`), in the query and in the index.
+- **Search filters mirror the sibling entity's filter model** (`SupportsSort`, `SupportsFilters`, `SupportsPagination`, …), even when the frontend doesn't use every part yet. **Every field of a filter model has a column behind it**, or the generic reader answers 500.
+- **An endpoint catches every error the manager it calls raises.** Read the manager's `:raises:` lines and catch each one, mapped to its status.
+- **Deleting a row drops the link rows that point at it, in both directions** (rows that link to it and rows it links to), in the same transaction.
+- **`get_` naming**: forbidden on manager methods that fetch something (§4: `entity_by_id`, `entity_by_id_raw`, `entity_by_id_internal`); **required** on dependency-injection providers (`get_session`, `get_current_user`, `get_entity_reader`) and on general getters that aren't SQL related.

@@ -22,6 +22,8 @@ from pathlib import Path
 UTF8_BOM = b"\xef\xbb\xbf"
 BANNER_LIKE_PATTERN = re.compile(r"^\s*#\s*-{3,}")
 BANNER_PATTERN = re.compile(r"^# ----- ([A-Z][A-Za-z0-9 ]*) ----- #$")
+ALLOWED_DISABLE_LINE = "# pylint: disable=duplicate-code"
+DEFINITION_START_PATTERN = re.compile(r"^\s*(?:async\s+def\s|def\s|class\s|@)")
 AUTHOR_PATTERN = re.compile(r"^:author: \S", re.MULTILINE)
 DATE_PATTERN = re.compile(r"^:date: \d{2}/\d{2}/\d{4}$", re.MULTILINE)
 DOCSTRING_QUOTE_LINES = ('"""', 'r"""')
@@ -40,6 +42,16 @@ NESTED_SCOPE_NODE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, as
 DOCSTRING_OWNER_NODE_TYPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 GET_PREFIX = "get_"
 MANAGER_CLASS_SUFFIXES = ("Manager", "Reader", "Creator", "Updater", "Deleter")
+SESSION_METHOD_NAMES = frozenset(
+    {"add", "query", "get", "exec", "execute", "delete", "merge", "refresh", "scalar", "scalars"},
+)
+BY_ID_SUFFIXES = ("_by_id", "_by_id_raw", "_by_id_internal")
+LOOP_NODE_TYPES = (ast.For, ast.AsyncFor, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+ENDPOINT_PREFIX = "Failed to"
+PYDANTIC_BASE_NAMES = frozenset({"BaseModel", "SQLModel"})
+ANY_DICT_PATTERN = re.compile(
+    r"\b[Dd]ict\[\s*str\s*,\s*(?:typing\.)?Any\s*\]",
+)
 BOOLEAN_NAME_PREFIXES = ("is_", "has_", "should_", "can_", "was_", "were_", "does_", "did_")
 BOOLEAN_CALL_NAMES = frozenset(
     {
@@ -577,6 +589,21 @@ def check_exception_location(path: Path, tree: ast.Module) -> list[Violation]:
     ]
 
 
+def is_allowed_duplicate_code_disable(lines: list[str], line_number: int) -> bool:
+    """
+    Tell whether a line is the one allowed suppression: exactly `# pylint: disable=duplicate-code`, on its own line, right above a function or class.
+
+    :param lines: The file's lines.
+    :param line_number: The 1-based line to judge.
+    :return: Whether the line is that allowed form.
+    """
+    if lines[line_number - 1].strip() != ALLOWED_DISABLE_LINE:
+        return False
+    if line_number >= len(lines):
+        return False
+    return DEFINITION_START_PATTERN.match(lines[line_number]) is not None
+
+
 def check_comments(path: Path, source: str) -> list[Violation]:
     """
     Report every `#` comment except the section banners and a first-line shebang.
@@ -586,8 +613,11 @@ def check_comments(path: Path, source: str) -> list[Violation]:
     :return: One violation per comment.
     """
     violations: list[Violation] = []
+    source_lines = source.splitlines()
     try:
-        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+        tokens = list(
+            tokenize.generate_tokens(io.StringIO(source).readline),
+        )
     except (tokenize.TokenError, SyntaxError):
         return []
     for token in tokens:
@@ -597,7 +627,11 @@ def check_comments(path: Path, source: str) -> list[Violation]:
         line_number = token.start[0]
         is_shebang = line_number == 1 and token.string.startswith("#!")
         is_banner = token.start[1] == 0 and BANNER_PATTERN.match(token.string) is not None
-        if is_shebang or is_banner:
+        is_allowed_disable = is_allowed_duplicate_code_disable(
+            source_lines,
+            line_number,
+        )
+        if is_shebang or is_banner or is_allowed_disable:
             continue
 
         violations.append(
@@ -820,6 +854,130 @@ def check_get_prefix(
     return violations
 
 
+def owning_class(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.ClassDef | None:
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, ast.ClassDef):
+            return current
+        current = parents.get(current)
+    return None
+
+
+def is_inside_manager(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    owner = owning_class(node, parents)
+    return owner is not None and owner.name.endswith(MANAGER_CLASS_SUFFIXES)
+
+
+def is_inside_loop(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """
+    Tell whether a node runs once per element of a loop or comprehension (the iterable itself runs once).
+
+    :param node: The node.
+    :param parents: Child-to-parent node map of the module.
+    :return: Whether an enclosing loop repeats it, within its function.
+    """
+    previous = node
+    current = parents.get(node)
+    skips_next_comprehension = False
+    while current is not None and not isinstance(current, FUNCTION_NODE_TYPES):
+        is_loop_iterable = isinstance(current, (ast.For, ast.AsyncFor)) and previous is current.iter
+        if isinstance(current, ast.comprehension) and previous is current.iter:
+            skips_next_comprehension = True
+        elif isinstance(current, LOOP_NODE_TYPES) and not is_loop_iterable:
+            if not (skips_next_comprehension and not isinstance(current, (ast.For, ast.AsyncFor))):
+                return True
+            skips_next_comprehension = False
+        previous = current
+        current = parents.get(current)
+    return False
+
+
+def is_session_call(node: ast.Call) -> bool:
+    if not isinstance(node.func, ast.Attribute) or node.func.attr not in SESSION_METHOD_NAMES:
+        return False
+    receiver = ast.unparse(node.func.value)
+    return "session" in receiver.lower()
+
+
+def check_managers(path: Path, tree: ast.Module, parents: dict[ast.AST, ast.AST]) -> list[Violation]:
+    """
+    Report managers built inside managers, database calls per loop element, and endpoint prefixes in manager messages.
+
+    :param path: The file being checked.
+    :param tree: Its syntax tree.
+    :param parents: Child-to-parent node map of the module.
+    :return: PY-74, PY-75 and PY-77 violations.
+    """
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            called_name = get_called_name(node)
+            if called_name is None:
+                called_name = ""
+            is_manager_class = called_name[:1].isupper() and called_name.endswith(MANAGER_CLASS_SUFFIXES)
+            if is_manager_class and is_inside_manager(node, parents):
+                violations.append(
+                    Violation(
+                        path,
+                        node.lineno,
+                        "PY-74",
+                        f"A manager never constructs another manager ('{called_name}'): take it through dependency injection.",
+                    ),
+                )
+            is_database_call = is_session_call(node) or called_name.endswith(BY_ID_SUFFIXES)
+            if is_database_call and is_inside_loop(node, parents):
+                violations.append(
+                    Violation(
+                        path,
+                        node.lineno,
+                        "PY-75",
+                        f"'{called_name}' runs once per loop element: batch it (one select(...).where(col.in_(ids)), session.add_all(...), bulk delete).",
+                    ),
+                )
+
+        is_endpoint_message = isinstance(node, ast.Raise) and node.exc is not None and ENDPOINT_PREFIX in ast.unparse(node.exc)
+        if is_endpoint_message and is_inside_manager(node, parents):
+            violations.append(
+                Violation(
+                    path,
+                    node.lineno,
+                    "PY-77",
+                    f"A manager's message names the object and the reason; '{ENDPOINT_PREFIX} ...' is added by the endpoint.",
+                ),
+            )
+
+    return violations
+
+
+def check_model_any_dicts(path: Path, tree: ast.Module) -> list[Violation]:
+    """
+    Report `dict[str, Any]` fields in pydantic and SQLModel models.
+
+    :param path: The file being checked.
+    :param tree: Its syntax tree.
+    :return: PY-83 violations.
+    """
+    violations: list[Violation] = []
+    for class_node in ast.walk(tree):
+        if not isinstance(class_node, ast.ClassDef):
+            continue
+        if not any(get_called_name(base) in PYDANTIC_BASE_NAMES for base in class_node.bases):
+            continue
+
+        for field_node in class_node.body:
+            if isinstance(field_node, ast.AnnAssign) and ANY_DICT_PATTERN.search(ast.unparse(field_node.annotation)) is not None:
+                violations.append(
+                    Violation(
+                        path,
+                        field_node.lineno,
+                        "PY-83",
+                        "No `dict[str, Any]` in a model: describe it with a model, or use `dict[str, JsonValue]`.",
+                    ),
+                )
+
+    return violations
+
+
 def bool_annotated_names(tree: ast.Module) -> frozenset[str]:
     """
     Collect the names the file annotates as `bool` (parameters and annotated assignments).
@@ -946,6 +1104,12 @@ def check_python_file(path: Path, base_source: str | None = None) -> list[Violat
     )
     violations += check_dunder_all(path, tree)
     violations += check_exceptions(path, tree)
+    violations += check_managers(
+        path,
+        tree,
+        parents,
+    )
+    violations += check_model_any_dicts(path, tree)
     violations += check_get_prefix(
         path,
         tree,
