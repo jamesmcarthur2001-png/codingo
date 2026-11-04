@@ -16,7 +16,7 @@ Database sessions, transactions and indexes: the `sql-conventions` checklist (PY
 twilight rules: `services/twilight/CLAUDE.md`. Shared models library rules: its `libs/<models library>/CLAUDE.md`. (PY-48, PY-49, PY-59, PY-60 and PY-61 moved there.)
 
 ## How to run
-- In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`) on the changed lines only. Copy their result for the items marked (auto), then judge the rest.
+- In the `/feature` workflow, `scripts/check_slice.py` and `scripts/check_changes.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`) on the changed lines only. Copy their result for the items marked (auto), then judge the rest.
 - Outside the workflow, run `python3 "$HOME/.claude/scripts/check_python_conventions.py" <files>` and judge only the lines you changed.
 - Never add `-> None` to silence mypy.
 

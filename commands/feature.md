@@ -1,5 +1,5 @@
 ---
-description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, Gate A, review rounds of 5 parallel reviewers, each checked by a verifier (up to 3), optional video, finish script (CI must pass), summary, worktree closed. Driven by docs/features/<ticket>/state.md and the Stop hook."
+description: "One-session feature workflow for BTRC tickets: setup + native worktree, 3 parallel explorers, grill (with frontend scope questions and optional HTML mockups), spec + slice plan, ONE approval, then autonomous build per slice, tests, commit + push + CI, review rounds of 5 parallel reviewers, each checked by a verifier (up to 3), CI again after each round's fixes, optional video, finish (rebase, CI must pass), summary, worktree closed. Driven by docs/features/<ticket>/state.md and the Stop hook."
 argument-hint: "<BTRC-n> \"<description>\" [base] [--no-worktree] | resume <BTRC-n>"
 ---
 
@@ -18,8 +18,8 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
 5. Say something works or passes only after you ran the check, and show its output. If you can't check it, say so.
 6. Before approval you may ask the user anything. **After approval never ask the user anything.** Decide conservatively, write the decision in `## Log`, continue.
 7. Try limits: a step fails → fix → run again. The scripts write `Status: BLOCKED: <reason>` on the 3rd failed run of the same step. For steps without a script (tests), do the same yourself. When Status is BLOCKED: tell the user the reason and stop. The VIDEO step is never a reason to block.
-8. While `gate_a.py` runs, don't edit state.md; wait for it to finish. A second run of the same feature refuses to start (exit 2) while one is running.
-9. Don't commit during the build. You commit once, in step F.
+8. Wait for every script you start to finish before you edit state.md.
+9. Don't commit during the build. You commit and push only in step C (CI) and step F (finish).
    Commits, merge requests and pushes get a **title only, no description** (no body, no trailers, no `-o merge_request.description`).
    Commit title: `<type>(<service>): <what was done>`, e.g. `feat(sunrise): add CSV export`; type is what the change is (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), the scope is the service (or `frontend`, or the lib) it changes, joined by a comma and a space when several (`feat(evermore, frontend): …`). No ticket in the commit.
    MR title: the same, followed by ` (BTRC-<n>)`. With more than one ticket, join the parts with ` & `: `feat(sunrise): add CSV export (BTRC-1234) & fix(frontend): keep the date filter (BTRC-1240)`.
@@ -44,7 +44,7 @@ Top fields are `Name: value` lines before the first `## `. Change one by rewriti
 
 | Field | Values |
 |---|---|
-| `Phase` | before approval: `SETUP`, `EXPLORE`, `GRILL`, `SPEC` · after: `BUILD`, `TESTS`, `GATE-A`, `GATE-B`, `VIDEO`, `FINISH`, `SUMMARY` |
+| `Phase` | before approval: `SETUP`, `EXPLORE`, `GRILL`, `SPEC` · after: `BUILD`, `TESTS`, `CI`, `GATE-B`, `VIDEO`, `FINISH`, `SUMMARY` |
 | `Status` | `RUNNING`, `DONE`, `BLOCKED: <reason>` |
 | `Approved` | `no` until the user approves, then `yes` |
 | `Session` | empty; the Stop hook writes this session's id after approval and then acts only for this session |
@@ -57,7 +57,7 @@ Top fields are `Name: value` lines before the first `## `. Change one by rewriti
 
 `## Frontend` (filled in by the grill, step G): `- Touches frontend:`, `- Playwright reviewer:`, `- Video:`, `- HTML preview:`, `- Dev server:`, `- App URL:`, `- Backend:`, `- Login:` (yes/no or a value each).
 
-Phases after approval: BUILD, TESTS, GATE-A, GATE-B, VIDEO, FINISH, SUMMARY
+Phases after approval: BUILD, TESTS, CI, GATE-B, VIDEO, FINISH, SUMMARY
 
 ---
 
@@ -74,7 +74,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 3. If `Status` starts with `BLOCKED`: show the reason and the last 10 `## Log` lines, and stop.
 4. If `Status: DONE`: show `summary.md` and stop.
 5. Clear the `Session:` field (this is a new session; the Stop hook records the new id).
-6. Continue at the step for `Phase` (SETUP→S, EXPLORE→E, GRILL→G, SPEC→P, BUILD→B, TESTS→T, GATE-A→A, GATE-B→GB, VIDEO→V, FINISH→F, SUMMARY→Z). Skip work whose output file already exists and is complete.
+6. Continue at the step for `Phase` (SETUP→S, EXPLORE→E, GRILL→G, SPEC→P, BUILD→B, TESTS→T, CI→C, GATE-B→GB, VIDEO→V, FINISH→F, SUMMARY→Z). Skip work whose output file already exists and is complete.
 7. Tell the user once: if the connection drops, recover with `claude --continue`, then `/feature resume BTRC-<n>`.
 
 ## S. Setup (Phase: SETUP)
@@ -221,17 +221,18 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
    - Failing test that shows a real bug → fix the code, log it.
    - Changed lines without coverage → add a planned test. Only if a line truly can't be tested, add `- path:lines: reason` under `## Coverage exemptions`, with the full repo-relative path (e.g. `- services/evermore/app/x.py:40-42: unreachable after the validator`).
 6. Limit: after a failed run set `Tries: TESTS <failed runs>`. On the 3rd failed run write `Status: BLOCKED: tests fail after 2 fixes` and stop.
-7. All green: set `Tries: 0`, `Phase: GATE-A`.
+7. All green: set `Tries: 0`, `Phase: CI`.
 
-## A. Gate A (Phase: GATE-A)
-1. Run (it can take long; use the maximum Bash timeout, 600000 ms, or run it in the background and wait):
-   ```
-   python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>
-   ```
-   It runs lint, typecheck, tests, changed-line coverage, scope and suppression checks.
-2. Exit 0: it set the next phase. Normally `Phase: GATE-B` (go to GB). After round 3 was triaged it sets `Phase: VIDEO` (when `- Video: yes`) or `Phase: FINISH`.
-3. Exit 1: fix every item, run again. Uncovered lines → a test (add its row first) or an exemption with a reason.
-4. Exit 2: setup error (`## Commands` missing, a coverage command without `--include-untracked`, the feature can't be found, git failed, or another run is still going). Fix the cause, run again.
+## C. CI (Phase: CI)
+The pipeline is the gate: lint, typecheck, tests and coverage run in CI, not in a local script. You commit, push and read the result.
+1. First time only: write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities`.
+2. Run the changed-line check (rule 14) and fix what it lists.
+3. Commit, title only: `git add -A`, `git commit -m "<title>"`. The first commit uses `Commit title:`; later ones say what they change in the same format (`fix(evermore): handle an empty export`).
+4. Push: `git push --force-with-lease origin HEAD:refs/heads/<Branch>` (the first push creates the branch). Rejected because someone else pushed: write `Status: BLOCKED: someone else pushed to <Branch>` and stop.
+5. Watch the pipeline of the commit you pushed: `glab ci status --branch <Branch>` every minute (Bash `sleep 60` between runs, up to 45 minutes).
+   - **Passed**: write `- ci: passed (<short commit>) round <Round>` in `## Log`, set `Tries: 0`. Then `Phase: GATE-B`; or, when `review/triage.md` already has `## Round 3` (the last round's fixes just passed), `Phase: VIDEO` (when `- Video: yes`) or `Phase: FINISH`.
+   - **Failed**: `glab ci trace <job> --branch <Branch>` for the failing job, fix the cause, run the tests locally, and go back to step 2. Set `Tries: CI <failed runs>`; on the 3rd failed pipeline write `Status: BLOCKED: pipeline fails after 2 fixes` and stop.
+   - Manual, blocked or canceled, or still running after 45 minutes: write `Status: BLOCKED: pipeline <state>` and stop.
 
 ## GB. Gate B, the review round (Phase: GATE-B), round = `Round`
 Five reviewers look at the branch, each for one kind of problem; a verifier then checks every finding. You fix what is real. Up to 3 rounds.
@@ -265,8 +266,8 @@ Five reviewers look at the branch, each for one kind of problem; a verifier then
 5. **Fix** every `fix` row, one after another, then run the checks once.
 6. Next:
    - No `fix` rows this round → set `Phase: VIDEO` when `- Video: yes`, else `Phase: FINISH`.
-   - `fix` rows and `Round` < 3 → fix them all, then set `Round: <Round+1>` and `Phase: GATE-A`.
-   - `fix` rows and `Round` = 3 → fix them, keep `Round: 3`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`. Leftovers go into the summary.
+   - `fix` rows and `Round` < 3 → fix them all, then set `Round: <Round+1>` and `Phase: CI` (the fixes are committed, pushed and checked there).
+   - `fix` rows and `Round` = 3 → fix them, keep `Round: 3`, set `Phase: CI`. When CI passes it goes on to `Phase: VIDEO` or `Phase: FINISH`. Leftovers go into the summary.
    A dropped connection mid-round: start again at step 1; reviewers and verifiers whose files are complete aren't run again.
 
 ## V. Video (Phase: VIDEO)
@@ -278,9 +279,9 @@ Five reviewers look at the branch, each for one kind of problem; a verifier then
 ## F. Finish (Phase: FINISH)
 **The feature is finished only when all four are true:** the branch is rebased on the latest base, the pipeline of the pushed commit **passed**, every container of this branch is closed, and the worktree is closed (step Z). Not one of them may be skipped, assumed or left for the user. `worktree.py remove --done` checks all of them and refuses to set `Status: DONE` until they hold.
 You do this step yourself, in the code root (the worktree), one command at a time. Record each finished step as a line under `## Finish` in state.md, exactly as written below, so a resume skips what's done.
-1. Write `Commit title:` and `MR title:` in state.md (rule 9), e.g. `Commit title: feat(evermore): add CSV export to entities` and `MR title: feat(evermore): add CSV export to entities (BTRC-1234)`.
+1. Check `Commit title:` and `MR title:` in state.md (written in step C) still describe the whole branch; fix them if not.
 2. Check: `git branch --show-current` is `<Branch>`, never `<Base>`. If not, write `Status: BLOCKED: wrong branch checked out` and stop.
-3. Run the changed-line check (rule 14) and fix what it lists. Then commit everything, title only: `git add -A`, then `git commit -m "<Commit title>"` (no `-m` body, no trailers). `docs/features/` is git-ignored, so it isn't committed.
+3. Commit anything still uncommitted (usually nothing: step C committed the work). Run the changed-line check (rule 14) first, then, title only: `git add -A`, then `git commit -m "<Commit title>"` (no `-m` body, no trailers). `docs/features/` is git-ignored, so it isn't committed.
 4. Rebase on the base: `git fetch origin`, then `git pull --rebase origin <Base>`.
    - Conflict: resolve each listed file (no `<<<<<<<` / `>>>>>>>` left), `git add <files>`, run the `test` command, then `git -c core.editor=true rebase --continue`. Repeat until the rebase is done.
    - Check it: `git merge-base --is-ancestor origin/<Base> HEAD` succeeds. Then write `- rebase: done`.

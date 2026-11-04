@@ -4,7 +4,7 @@ Applies to code you write or change. Never to unchanged lines.
 
 Run this per changed `.vue` / `.ts` file. Every item must be answered ✅, ❌ (with `file:line`), or N/A.
 
-In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run eslint, `check_vue_conventions.py` (VU-05, VU-16, VU-18, VU-22 string constants, VU-36, VU-43, VU-54), the comment check (VU-40) and the suppression check on the changed lines only; copy their result where it covers an item. Other items marked (auto) are mechanical but have no script yet: check them by hand. Judge only lines the branch added or changed.
+In the `/feature` workflow, `scripts/check_slice.py` and `scripts/check_changes.py` run eslint, `check_vue_conventions.py` (VU-05, VU-16, VU-18, VU-22 string constants, VU-36, VU-43, VU-54), the comment check (VU-40) and the suppression check on the changed lines only; copy their result where it covers an item. Other items marked (auto) are mechanical but have no script yet: check them by hand. Judge only lines the branch added or changed.
 
 ## Architecture
 - [ ] VU-01 Components are small and focused: genuinely reusable parts are extracted, and oversized components are split

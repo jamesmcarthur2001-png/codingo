@@ -38,7 +38,7 @@ MAX_FAILED_RUNS = 3
 RUNNING_MARKER_MAX_AGE_SECONDS = 75 * 60
 APPROVED_PREFIX = "yes"
 CHECKS_VARIABLE = "WORKFLOW_CHECKS"
-AFTER_APPROVAL_PHASES = ("BUILD", "TESTS", "GATE-A", "GATE-B", "VIDEO", "FINISH", "SUMMARY")
+AFTER_APPROVAL_PHASES = ("BUILD", "TESTS", "CI", "GATE-B", "VIDEO", "FINISH", "SUMMARY")
 FRONTEND_SECTION = "Frontend"
 FRONTEND_OPTION_PATTERN = re.compile(
     r"^\s*[-*]\s+(?P<name>[^:]+?)\s*:\s*(?P<value>.*)$",
@@ -246,7 +246,7 @@ class FeatureState:
         """
         Count one failed run of a step, and block the feature when the step reaches its try limit.
 
-        :param step: A name for the step that failed, e.g. `GATE-A-2`.
+        :param step: A name for the step that failed, e.g. `CI-2`.
         :return: How many runs of this step have failed in a row.
         """
         tries_match = TRIES_PATTERN.match(self.field("Tries"))

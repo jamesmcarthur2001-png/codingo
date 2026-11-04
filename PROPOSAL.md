@@ -1,6 +1,6 @@
 # Workflow proposal: the monorepo on Qwen 3.8 27B
 
-Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that replaces Beatrice: 5 reviewers, a verifier each, 3 rounds; the orchestrator finishes the branch itself (no finish script); no install script or /map-services. Sections below that mention `run_beatrice.py`, `finish_branch.py` or `install.sh` describe the old design)
+Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that replaces Beatrice: 5 reviewers, a verifier each, 3 rounds; the orchestrator finishes the branch itself (no finish script); no install script or /map-services. Sections below that mention `run_beatrice.py`, `finish_branch.py` or `install.sh` describe the old design) Since 04/11/2026 there is no Gate A script: after the tests and after each review round's fixes, the orchestrator commits, pushes and watches the CI pipeline until it passes (the CI phase); mentions of `gate_a.py` below describe the old design.
 
 ## 0. Decisions so far
 

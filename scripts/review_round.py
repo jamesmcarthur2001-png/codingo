@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from feature_state import FeatureNotFoundError, FeatureState, PLAYWRIGHT_REVIEWER_OPTION, load_feature_state
-from gate_a import SOURCE_BY_ID_PREFIX, TRIAGE_FILE_NAME, TRIAGE_ROUND_PATTERN, Dismissal, find_dismissal, normalize_path, read_line_text, review_directory, sync_dismissed
+from review_memory import SOURCE_BY_ID_PREFIX, TRIAGE_FILE_NAME, TRIAGE_ROUND_PATTERN, Dismissal, find_dismissal, normalize_path, read_line_text, review_directory, sync_dismissed
 from git_changes import GitError
 
 # ----- Consts ----- #

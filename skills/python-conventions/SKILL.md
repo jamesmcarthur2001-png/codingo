@@ -45,7 +45,7 @@ Use **`uv`** for every package and environment operation:
     - Use type annotations on local variables **only when it is not clear what type the variable is** (e.g., empty collections like `items: list[UserRecord] = []`, complex union returns, or when initializing from untyped external returns).
     - If you are not sure whether the type is clear, **always add the type annotation**.
 - **Static Verification**:
-    - In the `/feature` workflow, `scripts/check_slice.py` and `scripts/gate_a.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`, which drops only the errors the no-`-> None` rule causes) on the changed lines only.
+    - In the `/feature` workflow, `scripts/check_slice.py` and `scripts/check_changes.py` run the convention checker, ruff, eslint and `mypy --strict` (through `scripts/mypy_strict.py`, which drops only the errors the no-`-> None` rule causes) on the changed lines only.
     - Outside the workflow, run `python3 "$HOME/.claude/scripts/check_python_conventions.py" <files>` and judge only the lines you changed. For types use `python3 "$HOME/.claude/scripts/mypy_strict.py" <package>`, never plain mypy.
     - Never add `-> None` to silence mypy.
 - **Optional Returns**: In a function annotated `-> X | None`, write `return None` explicitly. mypy rejects a bare `return` there ("Return value expected").
@@ -578,8 +578,8 @@ Testing is governed by the dedicated **`pytest-conventions`** skill. Whenever wr
 
 ## 15. Lint Suppressions and Private Members
 
-- **No suppressions at all.** No `# noqa`, `# type: ignore`, `# pylint: disable=...`, `# pyright: ignore`, `eslint-disable`, or similar. Fix the code the tool reports. `check_slice.py` and `gate_a.py` fail on any new one.
-- **The one exception:** a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`. `check_slice.py`, `gate_a.py` and `check_changes.py` accept exactly that form and nothing else.
+- **No suppressions at all.** No `# noqa`, `# type: ignore`, `# pylint: disable=...`, `# pyright: ignore`, `eslint-disable`, or similar. Fix the code the tool reports. `check_slice.py` and `check_changes.py` fail on any new one.
+- **The one exception:** a single `# pylint: disable=duplicate-code` on its own line, directly above a function or class that deliberately mirrors its sibling. Never inside a body, docstring, call or signature, never another pylint check, and never a `# pylint: enable`. `check_slice.py` and `check_changes.py` accept exactly that form and nothing else.
 - **Never use another class's or module's private members** (names starting with `_`): no `manager._build_query()`, no `from app.sites import _parse_row`. Use the public function. If none exists, make the needed function public in the module that owns it.
 - Inside a class, `self._name` and `cls._name` are fine.
 

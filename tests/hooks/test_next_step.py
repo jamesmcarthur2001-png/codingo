@@ -62,7 +62,7 @@ def test_next_step_finished_feature_allows(
     [
         ("BUILD", 'check_slice.py" BTRC-1234 1'),
         ("TESTS", "test-plan.md"),
-        ("GATE-A", 'gate_a.py" BTRC-1234'),
+        ("CI", "glab ci status --branch <Branch>"),
         ("GATE-B", 'review_round.py" triage-check BTRC-1234 1'),
         ("FINISH", "glab ci status --branch"),
         ("SUMMARY", "summary.md"),
@@ -227,10 +227,10 @@ def test_next_step_phases_match_feature_command():
     "fragment",
     [
         'python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>',
-        'python3 "$HOME/.claude/scripts/gate_a.py" <Ticket>',
+        "git push --force-with-lease origin HEAD:refs/heads/<Branch>` (the first push creates the branch)",
         "git push --force-with-lease origin HEAD:refs/heads/<Branch>",
         "glab ci status --branch <Branch>",
-        "keep `Round: 3`, set `Phase: GATE-A`. Gate A then sets `Phase: VIDEO` or `Phase: FINISH`",
+        "keep `Round: 3`, set `Phase: CI`. When CI passes it goes on to `Phase: VIDEO` or `Phase: FINISH`",
         'python3 "<scripts>/review_round.py" triage-check <Ticket> <Round>',
         'python3 "<scripts>/review_round.py" capture <Ticket> <Round> --source <source>',
         'python3 "<scripts>/review_round.py" verify-check <Ticket> <Round> --source <source>',
@@ -255,7 +255,7 @@ def test_next_step_gate_b_text_matches_the_round_three_rule(tmp_path: Path, make
 
     reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
 
-    assert "keep `Round: 3`, `Phase: GATE-A`" in reason
+    assert "keep `Round: 3`, `Phase: CI`" in reason
     assert "Round 3 of 3" in reason
     assert 'review_round.py" triage-check BTRC-1234 3' in reason
 
@@ -327,7 +327,6 @@ def test_next_step_finish_writes_the_titles_and_waits_for_the_pipeline(tmp_path:
 
     assert "git push --force-with-lease" in reason
     assert "`Commit title:`" in reason
-    assert "` (BTRC-1234)`" in reason
     assert "the pipeline must pass" in reason
     assert "--cleanup" not in reason
 
@@ -355,3 +354,13 @@ def test_next_step_blocks_from_inside_a_real_worktree(
     completed = run_hook("next_step.py", stop_payload(worktree / "services"))
 
     assert decision(completed)["decision"] == "block"
+
+
+def test_next_step_ci_commits_pushes_and_names_the_mr_title(tmp_path: Path, make_feature_state: Callable[..., Path], run_hook: Callable[..., object]):
+    make_feature_state(tmp_path, phase="CI")
+
+    reason = str(decision(run_hook("next_step.py", stop_payload(tmp_path)))["reason"])
+
+    assert "` (BTRC-1234)`" in reason
+    assert "check_changes.py" in reason
+    assert "`Phase: GATE-B`" in reason

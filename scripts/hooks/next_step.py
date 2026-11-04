@@ -34,11 +34,17 @@ STEP_TEMPLATES = {
     ),
     "TESTS": (
         "Write test-plan.md (four columns: test name, what it checks, expected result, file), then the tests. "
-        "Run them and every coverage* command, fix failures, then set `Tries: 0` and `Phase: GATE-A` in state.md."
+        "Run them and every coverage* command, fix failures, then set `Tries: 0` and `Phase: CI` in state.md."
     ),
-    "GATE-A": (
-        "Run `python3 \"{scripts}/gate_a.py\" {ticket}` and fix what it lists. When it passes it sets `Phase: GATE-B`, "
-        "or `Phase: {after_review}` once round {max_rounds} is triaged."
+    "CI": (
+        "First time only: write `Commit title:` (`<type>(<service>): <what was done>`, no ticket, no body) and `MR title:` "
+        "(the commit title + ` ({ticket})`) in state.md. "
+        "Run `python3 \"{scripts}/check_changes.py\" --base <Base>` and fix what it lists. Then commit (title only, "
+        "`<type>(<service>): <what changed>`), `git push --force-with-lease origin HEAD:refs/heads/<Branch>`, and watch the pipeline with "
+        "`glab ci status --branch <Branch>` every minute (up to 45 minutes) until the pushed commit's pipeline finishes. "
+        "Failed: `glab ci trace <job> --branch <Branch>`, fix the cause, run the tests, and do this step again (the 3rd failure: BLOCKED). "
+        "Passed: write `- ci: passed (<commit>) round {round}` in `## Log`, set `Tries: 0`, then `Phase: GATE-B`, "
+        "or `Phase: {after_review}` when round {max_rounds} is already triaged."
     ),
     "GATE-B": (
         "Round {round} of {max_rounds}. If `python3 \"{scripts}/review_round.py\" triage-check {ticket} {round}` passes, go straight to the decision below. "
@@ -49,8 +55,8 @@ STEP_TEMPLATES = {
         "Then write a row for every finding into review/triage.md under `## Round {round}` "
         "(| # | Source | Verdict | File:line | Rule | Finding | Decision | Reason |): sure → fix, invalid → dismiss with the verifier's reason, "
         "unsure → open the code and decide (a dismiss needs a reason). Run triage-check until it passes, and only then fix every `fix` row. "
-        "Decision: no `fix` rows → `Phase: {after_review}`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: GATE-A`; "
-        "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: GATE-A`."
+        "Decision: no `fix` rows → `Phase: {after_review}`; `fix` rows and round < {max_rounds} → fix, then `Round: {next_round}` and `Phase: CI`; "
+        "`fix` rows in round {max_rounds} → fix, keep `Round: {max_rounds}`, `Phase: CI`."
     ),
     "VIDEO": (
         "Record one Playwright run with `recordVideo` that walks the new behaviour step by step, with short pauses, "
@@ -60,7 +66,7 @@ STEP_TEMPLATES = {
     "FINISH": (
         "Finished means all four: rebased on the latest base, the pipeline of the pushed commit passed, every container of the branch closed, "
         "and the worktree closed. Do the finish yourself in the code root, recording each done step under `## Finish` in state.md: "
-        "write `Commit title:` (`<type>(<service>): <what was done>`, no ticket, no body) and `MR title:` (the commit title + ` ({ticket})`); "
+        "check `Commit title:` and `MR title:` (written in the CI step) still describe the whole branch; "
         "check you're on the feature branch; run `python3 \"{scripts}/check_changes.py\" --base <Base>` and fix what it lists (before every commit); "
         "`git add -A` and `git commit -m \"<Commit title>\"`; `git pull --rebase origin <Base>` "
         "(resolve conflicts, run the tests, `rebase --continue`; then `- rebase: done`); `git push --force-with-lease origin HEAD:refs/heads/<Branch>` "

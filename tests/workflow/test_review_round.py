@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import gate_a
+import review_memory
 import review_round
 from conftest import git
 from feature_state import FeatureState
@@ -246,11 +246,11 @@ def test_dismissed_rows_feed_the_dismissed_memory_per_source(review_feature: Pat
     complete_round_one(review_feature, monkeypatch)
     write_review(review_feature, "triage.md", SOURCED_TRIAGE)
 
-    dismissed = gate_a.sync_dismissed(state_of(review_feature))
+    dismissed = review_memory.sync_dismissed(state_of(review_feature))
 
     assert [(dismissal.source, dismissal.finding_id) for dismissal in dismissed] == [("conventions", "C1-1")]
-    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "conventions") is not None
-    assert gate_a.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "correctness") is None
+    assert review_memory.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "conventions") is not None
+    assert review_memory.find_dismissal(dismissed, "app/entities.py", "PY-23", "if not rows:", "correctness") is None
 
 
 def test_capture_notes_findings_dismissed_in_an_earlier_round(review_feature: Path, monkeypatch: pytest.MonkeyPatch):
@@ -268,19 +268,6 @@ def test_capture_notes_findings_dismissed_in_an_earlier_round(review_feature: Pa
 def test_older_beatrice_rows_with_marks_still_feed_the_dismissed_memory(review_feature: Path):
     write_review(review_feature, "triage.md", "## Round 1\n| # | Source | Marks | File:line | Rule | Finding | Decision | Reason |\n|---|---|---|---|---|---|---|---|\n| R1-1 | beatrice | 2/2 | app/entities.py:3 | PY-23 | truthy | dismiss | a bool flag |\n")
 
-    dismissed = gate_a.sync_dismissed(state_of(review_feature))
+    dismissed = review_memory.sync_dismissed(state_of(review_feature))
 
     assert [(dismissal.source, dismissal.line_text) for dismissal in dismissed] == [("beatrice", "if not rows:")]
-
-
-def test_gate_a_after_round_three_with_video_moves_to_video(review_feature: Path):
-    state = state_of(review_feature)
-    state.set_field("Round", "3")
-    state.append_to_section("Frontend", "- Video: yes")
-    state.save()
-    write_review(review_feature, "triage.md", "## Round 3\n")
-
-    message = gate_a.record_gate_result(state_of(review_feature), True)
-
-    assert state_of(review_feature).field("Phase") == "VIDEO"
-    assert "Phase is now VIDEO" in message

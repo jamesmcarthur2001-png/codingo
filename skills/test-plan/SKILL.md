@@ -7,7 +7,7 @@ description: Use in the feature workflow after implementation and before writing
 
 Write `docs/features/<ticket>/test-plan.md` from `templates/test-plan.md`. **No test code is written before this file exists.**
 - A hook blocks writing any test whose name isn't in `test-plan.md`.
-- Gate A treats every file in the File column as allowed scope, so list every test file you'll create or change.
+- List every test file you'll create or change in the File column.
 
 ## Format
 `test-plan.md` is exactly one table, and nothing else (no layers, IDs, coverage map, or results):
