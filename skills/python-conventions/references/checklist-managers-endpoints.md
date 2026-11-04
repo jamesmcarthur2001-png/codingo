@@ -12,4 +12,3 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 - [ ] PY-81 Every endpoint catches every error listed in the `:raises:` of the manager methods it calls
 - [ ] PY-82 Deleting a row also deletes the link rows pointing at it, in both directions
 - [ ] PY-83 (auto) No `dict[str, Any]` in a pydantic or SQLModel model; use a model or `dict[str, JsonValue]`
-- [ ] PY-84 Dependency-injection providers and non-SQL getters start with `get_`

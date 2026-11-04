@@ -21,44 +21,59 @@ def test_check_python_file_shebang_before_page_docstring_is_allowed(write_python
     assert violations == []
 
 
-def test_check_python_file_get_function_existing_in_base_is_not_new(write_python_file: Callable[..., Path]):
-    source = FUNCTIONS + "def get_entity(entity_id: int, deleted: bool) -> int:\n    return entity_id\n"
-    base_source = FUNCTIONS + "def get_entity(entity_id: int) -> int:\n    return entity_id\n"
+def test_check_python_file_bool_function_existing_in_base_is_not_new(write_python_file: Callable[..., Path]):
+    source = FUNCTIONS + "def name_valid(name: str, strict: bool) -> bool:\n    return name != \"\"\n"
+    base_source = FUNCTIONS + "def name_valid(name: str) -> bool:\n    return name != \"\"\n"
     path = write_python_file(source)
 
     reported_rule_ids = rule_ids(path, base_source)
 
-    assert "PY-62" not in reported_rule_ids
+    assert "PY-85" not in reported_rule_ids
 
 
-def test_check_python_file_get_method_overriding_a_framework_base_is_allowed(write_python_file: Callable[..., Path]):
-    source = HEADER + "# ----- Imports ----- #\n\nfrom framework import ModelView\n\n# ----- Classes ----- #\n\n\nclass EntityView(ModelView):\n    \"\"\"\n    The entity admin view.\n    \"\"\"\n    def get_queryset(self) -> list[str]:\n        \"\"\"\n        List the rows.\n        \"\"\"\n        return []\n"
+def test_check_python_file_bool_method_overriding_a_framework_base_is_allowed(write_python_file: Callable[..., Path]):
+    source = HEADER + "# ----- Imports ----- #\n\nfrom framework import ModelView\n\n# ----- Classes ----- #\n\n\nclass EntityView(ModelView):\n    \"\"\"\n    The entity admin view.\n    \"\"\"\n    def permission(self) -> bool:\n        \"\"\"\n        Allow the view.\n        \"\"\"\n        return True\n"
     path = write_python_file(source)
 
     reported_rule_ids = rule_ids(path)
 
-    assert "PY-62" not in reported_rule_ids
+    assert "PY-85" not in reported_rule_ids
 
 
-def test_check_python_file_get_method_with_override_decorator_is_allowed(write_python_file: Callable[..., Path]):
-    path = write_python_file("@override\ndef get_value():\n    return 1\n", "test_override.py")
+@pytest.mark.parametrize("name", ["name_valid", "_check_name", "validate_name"])
+def test_check_python_file_bool_function_without_a_question_name_reports_py85(write_python_file: Callable[..., Path], name: str):
+    path = write_python_file(f"def {name}(name: str) -> bool:\n    return name != \"\"\n", "test_names.py")
+
+    reported_rule_ids = rule_ids(path)
+
+    assert reported_rule_ids == ["PY-85"]
+
+
+@pytest.mark.parametrize("name", ["is_name_valid", "_is_name_valid", "has_children", "can_archive", "should_retry"])
+def test_check_python_file_bool_function_with_a_question_name_is_allowed(write_python_file: Callable[..., Path], name: str):
+    path = write_python_file(f"def {name}(name: str) -> bool:\n    return name != \"\"\n", "test_names.py")
 
     reported_rule_ids = rule_ids(path)
 
     assert reported_rule_ids == []
 
 
-@pytest.mark.parametrize("class_name", ["EntityManager", "EntityReader", "EntityCreator", "EntityUpdater"])
-def test_check_python_file_new_get_method_of_a_manager_reports_py62(write_python_file: Callable[..., Path], class_name: str):
-    path = write_python_file(f"class {class_name}:\n    def get_entity(self):\n        return 1\n", "test_store.py")
+@pytest.mark.parametrize("name", ["_reject_duplicate_name", "accept_invitation", "_reject"])
+def test_check_python_file_reject_or_accept_function_reports_py86(write_python_file: Callable[..., Path], name: str):
+    path = write_python_file(f"def {name}(name: str):\n    return name\n", "test_names.py")
 
     reported_rule_ids = rule_ids(path)
 
-    assert reported_rule_ids == ["PY-62"]
+    assert reported_rule_ids == ["PY-86"]
 
 
-def test_check_python_file_get_method_of_a_non_manager_class_is_allowed(write_python_file: Callable[..., Path]):
-    path = write_python_file("class Store:\n    def get_entity(self):\n        return 1\n", "test_store.py")
+@pytest.mark.parametrize("source", [
+    "class EntityReader:\n    def get_entity(self):\n        return 1\n",
+    "def get_session():\n    return 1\n",
+    "def rejection_reason(name: str):\n    return name\n",
+])
+def test_check_python_file_get_and_lookalike_names_are_allowed(write_python_file: Callable[..., Path], source: str):
+    path = write_python_file(source, "test_names.py")
 
     reported_rule_ids = rule_ids(path)
 

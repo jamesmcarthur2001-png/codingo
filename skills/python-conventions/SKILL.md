@@ -1,6 +1,6 @@
 ---
 name: python-conventions
-description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (no new get_ functions), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, .env configuration, string constants (keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
+description: Use when creating, modifying, refactoring, or testing Python backend code. Enforces typing standards, docstrings on every function and endpoint (imperative mood), naming (by_id fetches, question-named bool functions, _validate_ over _reject_/_accept_), page/section headers, class and SQLModel layout, StrEnum, Annotated pydantic validators, readable and flat if conditions, mappings over if chains, blank lines after if blocks, multiline calls, collection literals and comprehensions, FastAPI dependencies and router prefixes, general exceptions only in errors files, .env configuration, string constants (keys only), no comments, no suppressions or private access, uv usage, and references the pytest-conventions and sql-conventions skills.
 ---
 
 # Python Backend Conventions
@@ -181,7 +181,9 @@ DOCSTRING EXPLANATION
 - **Classes & `__init__`**: Classes get a standard description with opening `"""` on line 1, description on line 2, and closing `"""` on line 3 (no `:param:` or `:return:`). `__init__` methods do **NOT** get a docstring.
 - **No blank line after a class docstring**: the class body (`__init__`, attributes, `__tablename__`, anything) starts on the line right after the closing `"""`.
 - **Indicative Naming**: Never use vague or generic names like `load` or `process`. Use explicit names that explain what is being handled (e.g., `load_customer_billing_history`, `process_credit_card_charge`).
-- **`get_` naming**: a manager method that fetches something never starts with `get_`: name what it returns, `entity_by_id`, or `entity_by_id_raw` (the row as stored) / `entity_by_id_internal` (for use inside the service only) when that's the case. Never `get_entity_by_id`. Dependency-injection providers (`get_session`, `get_current_user`) and general getters that aren't SQL related **must** start with `get_`.
+- **`get_` is fine**, but a function that fetches a model by its id is named for it with `by_id` when possible: `entity_by_id`, `entity_by_id_raw` (the row as stored), `entity_by_id_internal` (for use inside the service only).
+- **Functions that return `bool` are named as a question**: `is_`, `has_`, `can_`, `should_`, `are_`, `does_`, … (`_is_name_valid(request.name)`, `has_children(site)`, `can_archive(asset)`), never `name_valid` or `check_name`.
+- **`_validate_`, not `_reject_` / `_accept_`**: a function that checks input and raises or lets it through is `_validate_<what>` (`_validate_name`), never `_reject_duplicate_name` or `_accept_invitation`; it validates, and validating can reject or accept.
 - **No short or abbreviated names**: no single-letter names and no abbreviations (`q`, `db`, `e`, `ex`, `err`, `idx`, `tmp`, `cfg`, `val`, `obj`, `res`, `req`, `resp`, `msg`, ...) for variables, parameters, loop and comprehension variables, or `except ... as` names. Write the full word: `query`, `session`, `error`, `index`. When an external name must stay short (e.g. a `?q=` query parameter), keep the full Python name and map it: `query: Annotated[str | None, Query(alias="q")] = None`.
 
 ---
@@ -482,7 +484,7 @@ site_names = [site.name for site in sites if not site.archived]
 ## 11. FastAPI Endpoints and Dependencies
 
 - **Every endpoint has a docstring** with only a short description (see §4).
-- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Dependency providers always start with `get_` (§4).
+- **Dependencies are functions**, such as the existing `get_session` and `get_current_user`, and every endpoint that needs one calls it in its own signature with `Depends(...)`. Dependency providers may start with `get_`.
 - **New routers use `prefix=`, not `tags=`**: `router = APIRouter(prefix="/sites")`.
 - **Never store a dependency in a constant or a type alias** (no `SessionDependency = Annotated[Session, Depends(get_session)]` and no `session_dependency = Depends(get_session)`). Spelling the dependency in each endpoint keeps every endpoint readable on its own.
 - Query and path parameters use full names (§4); use `alias=` when the URL needs a short name.
@@ -635,4 +637,4 @@ These apply to every service with managers and endpoints (in evermore: `services
 - **Search filters mirror the sibling entity's filter model** (`SupportsSort`, `SupportsFilters`, `SupportsPagination`, …), even when the frontend doesn't use every part yet. **Every field of a filter model has a column behind it**, or the generic reader answers 500.
 - **An endpoint catches every error the manager it calls raises.** Read the manager's `:raises:` lines and catch each one, mapped to its status.
 - **Deleting a row drops the link rows that point at it, in both directions** (rows that link to it and rows it links to), in the same transaction.
-- **`get_` naming**: forbidden on manager methods that fetch something (§4: `entity_by_id`, `entity_by_id_raw`, `entity_by_id_internal`); **required** on dependency-injection providers (`get_session`, `get_current_user`, `get_entity_reader`) and on general getters that aren't SQL related.
+- **Naming**: `get_` is fine; a fetch by id is named with `by_id` when possible (`entity_by_id`), bool functions ask a question (`is_name_valid`), and checks are `_validate_`, never `_reject_`/`_accept_` (§4).

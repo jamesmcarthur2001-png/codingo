@@ -111,7 +111,7 @@ def test_post_edit_checks_existing_get_function_with_changed_def_line_allows(fea
 
     completed = run_hook("post_edit_checks.py", edit_payload(feature_repository, path))
 
-    assert "PY-62" not in completed.stderr
+    assert "PY-85" not in completed.stderr
 
 
 def test_post_edit_checks_change_inside_existing_call_reports_the_call(feature_repository: Path, run_hook: Callable[..., object]):

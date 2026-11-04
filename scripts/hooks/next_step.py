@@ -71,7 +71,8 @@ STEP_TEMPLATES = {
     ),
     "SUMMARY": (
         "Write docs/features/{ticket}/summary.md in the code root (what was built, every review finding of every source and what happened to it, "
-        "the video, the MR title, what's left for the user) and show it to the user. Then close the worktree: call `ExitWorktree` (action keep) "
+        "the video, the MR title, what's left for the user) and show it to the user. Then REMOVE THE GIT WORKTREE, always (the feature isn't finished while it exists): "
+        "call `ExitWorktree` (action keep) "
         "and run `python3 \"{scripts}/worktree.py\" remove {ticket} --done`: it refuses (exit 1) until the branch is rebased, the pipeline passed "
         "and the branch's containers are closed; then it copies the feature folder to the main checkout, removes the worktree and sets `Status: DONE`."
     ),

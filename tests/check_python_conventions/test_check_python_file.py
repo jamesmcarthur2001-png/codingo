@@ -172,15 +172,6 @@ def test_check_python_file_get_prefix_on_a_free_function_is_allowed(write_python
     assert violations == []
 
 
-def test_check_python_file_get_prefix_on_a_reader_method_names_the_by_id_forms(write_python_file: Callable[..., Path]):
-    path = write_python_file("class EntityReader:\n    def get_entity(self):\n        return 1\n", "test_entities.py")
-
-    violations = check_python_file(path)
-
-    assert [violation.rule_id for violation in violations] == ["PY-62"]
-    assert "X_by_id_raw" in violations[0].message
-
-
 @pytest.mark.parametrize(
     "expression",
     [

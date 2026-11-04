@@ -22,8 +22,8 @@
   yet, and every field of a filter model has a column behind it, or the generic reader answers 500.
 - An endpoint catches every error the manager it calls raises: read the manager's :raises:, catch them all.
 - Deleting a row drops the link rows that point at it, in both directions.
-- get_: forbidden on manager methods that fetch (entity_by_id, entity_by_id_raw, entity_by_id_internal);
-  required on dependency-injection providers and on general getters that aren't SQL related.
+- Naming: get_ is fine; a fetch by id uses by_id when possible (entity_by_id, entity_by_id_raw, entity_by_id_internal).
+  Bool functions ask a question (_is_name_valid). Checks are _validate_..., never _reject_... or _accept_....
 - Every session operation runs in a transaction: with self._session.begin_nested():
 - Keep the try: self._session.commit() + handle_integrity_error(...) block as written in each function,
   even when it repeats. Don't extract it.

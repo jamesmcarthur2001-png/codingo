@@ -63,6 +63,8 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   `--force-with-lease`), the pipeline of the pushed commit passed (`glab ci status --branch <branch>`; a failed job:
   `glab ci trace <job> --branch <branch>`, fix, push again), every container of the branch closed
   (`docker compose -p btrc-<n> down`), and its worktree closed. Never call it done before that.
+- **When you finish working on a branch, remove its git worktree. Always**, also outside /feature: leave it, then
+  `git worktree remove <worktree path>` and check `git worktree list` no longer shows it. Commit first; never --force.
 - Before every commit to a feature branch (a pipeline fix, a quick fix, inside or outside /feature), run
   `python3 "$HOME/.claude/scripts/check_changes.py" --base <base>` and fix what it lists.
 - Never push to the base branch. After a merge, pull the base branch.
@@ -70,9 +72,10 @@ A verifier's `sure` is always fixed, `invalid` never is; `unsure` is your call. 
   the git steps, and after the spec is approved it asks no questions.
 
 ## Python, every service
-- Manager methods that fetch something never start with `get_`: `entity_by_id`, `entity_by_id_raw` or
-  `entity_by_id_internal`, not `get_entity_by_id`. Dependency-injection providers and general getters that aren't SQL
-  related must start with `get_`.
+- `get_` is fine, but a function that fetches a model by its id is named with `by_id` when possible: `entity_by_id`,
+  `entity_by_id_raw`, `entity_by_id_internal`.
+- A function that returns bool is named as a question: `_is_name_valid(request.name)`, `has_children`, `can_archive`.
+- Checks are `_validate_<what>`, never `_reject_...` or `_accept_...`: we validate, and that can reject or accept.
 - Full years in dates: 2026, not 26.
 - Keep docstrings short: one sentence on what the function or class is for, not how it works.
   Don't narrate its steps, branches or edge cases; the code already says that. `:param:`/`:return:` lines are a few words each.

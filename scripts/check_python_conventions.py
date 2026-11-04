@@ -40,7 +40,12 @@ EXCEPTION_NAME_SUFFIXES = ("Error", "Exception")
 FUNCTION_NODE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef)
 NESTED_SCOPE_NODE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 DOCSTRING_OWNER_NODE_TYPES = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-GET_PREFIX = "get_"
+BOOL_QUESTION_PREFIXES = (
+    "is_", "are_", "was_", "were_", "has_", "have_", "had_", "can_", "could_", "should_", "must_", "will_",
+    "does_", "do_", "did_", "needs_", "allows_", "contains_", "matches_", "exists_",
+)
+VALIDATION_VERB_PREFIXES = ("reject_", "accept_")
+VALIDATION_VERBS = frozenset({"reject", "accept"})
 MANAGER_CLASS_SUFFIXES = ("Manager", "Reader", "Creator", "Updater", "Deleter")
 SESSION_METHOD_NAMES = frozenset(
     {"add", "query", "get", "exec", "execute", "delete", "merge", "refresh", "scalar", "scalars"},
@@ -805,25 +810,45 @@ def is_framework_override(
     )
 
 
-def is_manager_method(node: ast.FunctionDef | ast.AsyncFunctionDef, parents: dict[ast.AST, ast.AST]) -> bool:
-    owner = parents.get(node)
-    return isinstance(owner, ast.ClassDef) and owner.name.endswith(MANAGER_CLASS_SUFFIXES)
+def is_bool_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return node.returns is not None and ast.unparse(node.returns) == "bool"
 
 
-def check_get_prefix(
+def function_name_problem(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, str] | None:
+    """
+    Judge a new function's name: a bool function asks a question, and nothing is named `reject_` / `accept_`.
+
+    :param node: The function.
+    :return: The rule ID and message, or None when the name is fine.
+    """
+    bare_name = node.name.lstrip("_")
+    if bare_name.startswith(VALIDATION_VERB_PREFIXES) or bare_name in VALIDATION_VERBS:
+        return (
+            "PY-86",
+            f"'{node.name}' should be named '_validate_...': we validate, and the check rejects or accepts.",
+        )
+    if is_bool_function(node) and not bare_name.startswith(BOOL_QUESTION_PREFIXES):
+        return (
+            "PY-85",
+            f"'{node.name}' returns bool, so its name asks a question: e.g. 'is_name_valid', 'has_children', 'can_archive'.",
+        )
+    return None
+
+
+def check_function_names(
     path: Path,
     tree: ast.Module,
     parents: dict[ast.AST, ast.AST],
     base_function_names: frozenset[str],
 ) -> list[Violation]:
     """
-    Report new manager methods named `get_...`; other functions may use `get_`.
+    Report new functions whose names break the naming rules: bool functions as questions, `_validate_` over `_reject_`/`_accept_`.
 
     :param path: The file being checked.
     :param tree: Its syntax tree.
     :param parents: Child-to-parent node map of the module.
     :param base_function_names: Names the file already had in the base version.
-    :return: One violation per new `get_` method of a manager class.
+    :return: PY-85 and PY-86 violations.
     """
     violations: list[Violation] = []
     local_class_names = frozenset(
@@ -832,25 +857,26 @@ def check_get_prefix(
         if isinstance(node, ast.ClassDef)
     )
     for node in ast.walk(tree):
-        if not isinstance(node, FUNCTION_NODE_TYPES) or not node.name.startswith(GET_PREFIX):
+        if not isinstance(node, FUNCTION_NODE_TYPES) or node.name in base_function_names:
             continue
-        if not is_manager_method(node, parents):
-            continue
-        if node.name in base_function_names:
-            continue
-        if is_framework_override(
+        if node.name.startswith("__") or is_framework_override(
             node,
             parents,
             local_class_names,
         ):
             continue
-        violation = Violation(
-            path,
-            node.lineno,
-            "PY-62",
-            f"Manager methods never start with 'get_': name what they return, e.g. '{node.name.removeprefix(GET_PREFIX)}', 'X_by_id', 'X_by_id_raw' or 'X_by_id_internal'.",
-        )
-        violations.append(violation)
+
+        problem = function_name_problem(node)
+        if problem is not None:
+            violations.append(
+                Violation(
+                    path,
+                    node.lineno,
+                    problem[0],
+                    problem[1],
+                ),
+            )
+
     return violations
 
 
@@ -1110,7 +1136,7 @@ def check_python_file(path: Path, base_source: str | None = None) -> list[Violat
         parents,
     )
     violations += check_model_any_dicts(path, tree)
-    violations += check_get_prefix(
+    violations += check_function_names(
         path,
         tree,
         parents,

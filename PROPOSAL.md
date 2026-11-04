@@ -8,7 +8,7 @@ Status: v9, built · 02/11/2026 (v8 plus the in-workflow review round that repla
 |---|---|---|
 | 1 | Dates | `DD/MM/YYYY`, full years. **Done**: python-conventions (both copies) and `check_python_conventions.py` now require it, with a test for a 2-digit year. |
 | 2 | String constants | Frontend: a long sentence (6+ words) used in more than one place becomes a constant. Backend strings stay inline. Keys (storage, header, cache, queue/routing, event, permission and service-to-service payload keys) are constants in both, each service keeping its own. Error messages and what's raised are never constants. |
-| 3 | `get_` prefix | Manager methods that fetch something never start with `get_` (`entity_by_id`, `entity_by_id_raw`, `entity_by_id_internal`). Elsewhere `get_` is fine. |
+| 3 | Naming | `get_` is fine; a fetch by id uses `by_id` when possible (`entity_by_id`, `entity_by_id_raw`, `entity_by_id_internal`). Bool functions ask a question (`_is_name_valid`); checks are `_validate_`, never `_reject_`/`_accept_`. |
 | 4 | Suppressions | None allowed: no `# noqa`, `# type: ignore`, `# pylint: disable`, `eslint-disable`. A script fails on any new one. |
 | 5 | Tests source | `services/evermore/tests/CLAUDE.md` defines evermore's test model. The general pytest skill drops its `db_session` and factory examples. |
 | 6 | Force push | `--force-with-lease=<branch>:<last commit the script pushed>`: it refuses if someone else pushed to the branch since then (a plain `--force-with-lease` after `git fetch` would protect nothing). |

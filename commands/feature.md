@@ -37,6 +37,8 @@ You are the orchestrator. You do every step yourself, in this one session. Your 
    ```
    It appends to `~/.claude/workflow-feedback/<Branch>/orchestrator.md` (outside the repo, so it outlives the worktree), with the ticket and phase. The user reviews it; never change the workflow's files yourself because of a note. Notes don't block anything and never need the user's answer.
 
+16. **⚠ When you finish working on a branch, remove its git worktree. Always.** Leaving a worktree behind is not finished. In `/feature` this is step Z.3 (`worktree.py remove <Ticket> --done`), and nothing may come after the summary except that. Outside `/feature`, or when that script can't run: leave the worktree (`ExitWorktree`, or `cd` to the main checkout), then `git worktree remove <worktree path>`, and check `git worktree list` no longer shows it. Never `--force` over uncommitted work: commit or ask first.
+
 ## state.md format
 Top fields are `Name: value` lines before the first `## `. Change one by rewriting its line.
 
@@ -316,7 +318,7 @@ You do this step yourself, in the code root (the worktree), one command at a tim
    ```
    List **every** finding of every source from every round.
 2. Show the user the summary.
-3. Close the worktree. This is the last of the four conditions, and the only way to `Status: DONE`; the Stop hook keeps you going until it's set:
+3. **⚠ Remove the git worktree (rule 16). Never skip this, never leave it for the user.** It's the last of the four conditions and the only way to `Status: DONE`; the Stop hook keeps you going until it's set:
    - Worktree feature: call **`ExitWorktree`** with action `keep` (the script removes it), then from the main checkout run
      ```
      python3 "$HOME/.claude/scripts/worktree.py" remove <Ticket> --done
@@ -324,4 +326,4 @@ You do this step yourself, in the code root (the worktree), one command at a tim
      It first checks the other three: the `## Finish` lines `- rebase: done`, `- pipeline: passed`, `- containers: closed`, that `origin/<Branch>` is the local branch and sits on the latest `origin/<Base>`, and that no container of `<Compose project>` runs. Any of them failing: exit 1 with the list; go back to step F, fix it, and run it again. Then it copies the feature folder to `<main checkout>/docs/features/<Ticket>/`, runs `git worktree remove` (the branch stays) and sets `Status: DONE` in the copy. If `ExitWorktree` isn't available, run the same command from the worktree, and run nothing in it afterwards.
      Exit 1 (uncommitted files): show `git status` of the worktree, and stop with that message.
    - `Worktree mode: none`: run the same command; it only sets `Status: DONE` and deletes `.active`.
-4. Tell the user the feature folder path and the MR title.
+4. Check `git worktree list` (from the main checkout) no longer shows `<Worktree>`. Then tell the user the worktree was removed, the feature folder path and the MR title.
