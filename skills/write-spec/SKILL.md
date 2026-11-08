@@ -20,9 +20,9 @@ Produce `spec.md` and `plan.md` in `docs/features/<ticket>/` from the templates 
 - **Open questions must be empty.** If you discover a new unknown while writing, stop and go back to the grill for it.
 
 ## Writing `plan.md`
-- Use `templates/plan.md`. `scripts/scope_check.py` parses it, so keep its format exactly.
+- Use `templates/plan.md`. `scripts/check_changes.py --slice` parses it, so keep its format exactly.
 - **2–4 slices**, each a `## Slice <n>: <name>` header with no other headers inside it.
-- Each slice starts with `Files:` and one `` - `path` `` bullet per file it may touch (repo-relative; a folder ending in `/` or a glob is allowed, where `*` stays inside one folder and `**` crosses folders). `check_slice.py` fails on any changed file not listed in slices 1..n.
+- Each slice starts with `Files:` and one `` - `path` `` bullet per file it may touch (repo-relative; a folder ending in `/` or a glob is allowed, where `*` stays inside one folder and `**` crosses folders). `check_changes.py --slice` fails on any changed file not listed in slices 1..n.
 - Order slices by dependency: model/migration, then service manager/reader, then API route, then proxy route, then frontend types and client, then components/views. Async pieces (RabbitMQ, Temporal) come right after the code they depend on.
 - One migration for the branch, in the first slice; later slices update it, never add another.
 - Every slice lists: covered `REQ` IDs, **the pattern it follows (`P-n` plus a reference file)**, its tasks, and a verify command from the service map.

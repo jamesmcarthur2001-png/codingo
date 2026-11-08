@@ -198,7 +198,7 @@ Split `$ARGUMENTS` into words, keeping the quoted description together. The word
 5. Implement the tasks. Change only files in the slice's `Files:`. The post-edit hook reports problems on your changed lines: fix them right away.
 6. Run:
    ```
-   python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>
+   python3 "$HOME/.claude/scripts/check_changes.py" --slice <Ticket> <Slice>
    ```
    Exit 0: it already set the next `Slice` (or `Phase: TESTS` after the last slice). Continue.
    Exit 1: fix every listed `file:line`, run it again. A file outside the list: revert it, or add it to the slice's `Files:` with a reason in `## Log`.

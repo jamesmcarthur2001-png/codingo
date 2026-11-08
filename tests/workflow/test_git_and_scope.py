@@ -4,7 +4,7 @@ import pytest
 
 from conftest import git
 from git_changes import GitError, branch_line_filters, changed_existing_lines, changed_files, changed_line_filter, diff_base_commit, parse_hunks
-from scope_check import matches_allowed, out_of_scope_files, parse_plan_slices, parse_test_plan_files
+from check_changes import matches_allowed, out_of_scope_files, parse_plan_slices
 
 DIFF_OUTPUT = """diff --git a/app/entities.py b/app/entities.py
 --- a/app/entities.py
@@ -41,12 +41,6 @@ Files:
 - `not/a/file.py`
 """
 
-TEST_PLAN = """| Test name | What it checks | Expected result | File |
-|---|---|---|---|
-| `test_export_entities_returns_csv` | Export of two entities | CSV with a header and two rows | `services/evermore/tests/entities/test_export.py` |
-| `test_export_entities_empty_returns_header` | Export with no entities | Only the header row | `services/evermore/tests/entities/test_export.py` |
-"""
-
 
 def test_parse_hunks_reads_added_lines_and_deleted_files():
     hunks = parse_hunks(DIFF_OUTPUT)
@@ -72,12 +66,6 @@ def test_parse_plan_slices_reads_files_of_each_slice():
             "frontend/src/requests/",
         ],
     }
-
-
-def test_parse_test_plan_files_reads_file_column_once():
-    files = parse_test_plan_files(TEST_PLAN)
-
-    assert files == ["services/evermore/tests/entities/test_export.py"]
 
 
 def test_out_of_scope_files_allows_paths_globs_and_folders():

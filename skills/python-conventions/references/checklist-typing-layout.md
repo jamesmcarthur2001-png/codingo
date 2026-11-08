@@ -21,4 +21,4 @@ Applies to code you write or change. Never to unchanged lines. Answer each item 
 
 ## Tooling
 - [ ] PY-28 Dependencies added with `uv add`, and commands run through `uv run`
-- [ ] PY-50 `mypy --strict` passes on the changed lines (`check_slice.py` / `check_changes.py` in the workflow, `scripts/mypy_strict.py` outside it), never silenced with `-> None`
+- [ ] PY-50 `mypy --strict` passes on the changed lines (`check_changes.py` in the workflow, `scripts/mypy_strict.py` outside it), never silenced with `-> None`

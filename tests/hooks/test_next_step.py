@@ -60,7 +60,7 @@ def test_next_step_finished_feature_allows(
 @pytest.mark.parametrize(
     ("phase", "expected_text"),
     [
-        ("BUILD", 'check_slice.py" BTRC-1234 1'),
+        ("BUILD", 'check_changes.py" --slice BTRC-1234 1'),
         ("TESTS", "test-plan.md"),
         ("CI", "glab ci status --branch <Branch>"),
         ("GATE-B", 'review_round.py" triage-check BTRC-1234 1'),
@@ -226,7 +226,7 @@ def test_next_step_phases_match_feature_command():
 @pytest.mark.parametrize(
     "fragment",
     [
-        'python3 "$HOME/.claude/scripts/check_slice.py" <Ticket> <Slice>',
+        'python3 "$HOME/.claude/scripts/check_changes.py" --slice <Ticket> <Slice>',
         "git push --force-with-lease origin HEAD:refs/heads/<Branch>` (the first push creates the branch)",
         "git push --force-with-lease origin HEAD:refs/heads/<Branch>",
         "glab ci status --branch <Branch>",

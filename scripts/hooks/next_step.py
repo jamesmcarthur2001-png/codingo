@@ -30,7 +30,7 @@ SCRIPTS_PATH = "$HOME/.claude/scripts"
 STEP_TEMPLATES = {
     "BUILD": (
         "Implement slice {slice} of plan.md (only its Files). Then run "
-        "`python3 \"{scripts}/check_slice.py\" {ticket} {slice}` and fix what it lists (it advances state.md when it passes)."
+        "`python3 \"{scripts}/check_changes.py\" --slice {ticket} {slice}` and fix what it lists (it advances state.md when it passes)."
     ),
     "TESTS": (
         "Write test-plan.md (four columns: test name, what it checks, expected result, file), then the tests. "
